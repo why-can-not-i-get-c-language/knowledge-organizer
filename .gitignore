@@ -1,0 +1,20 @@
+# 仅公开应用源码、正式资源、依赖清单、编译配置及 README。
+/*
+!/.gitignore
+!/README.md
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/src/
+!/assets/
+
+# 即使位于源码目录，也不跟踪本机配置、依赖、数据与构建产物。
+**/node_modules/
+**/dist/
+**/build/
+**/.env*
+*.log
+*.sqlite
+*.sqlite-*
+*.pem
+*.key
