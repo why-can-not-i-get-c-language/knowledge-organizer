@@ -1,1 +1,21 @@
-{"name":"knowledge-organizer","version":"0.1.0","private":true,"type":"module","scripts":{"typecheck":"tsc --noEmit"},"dependencies":{"zod":"^4.6.7"},"devDependencies":{"typescript":"^7.0.2"}}
+{
+  "name": "knowledge-organizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "vite src/ui --host 127.0.0.1",
+    "build": "vite build src/ui --outDir ../../dist --emptyOutDir",
+    "prototype": "node src/platform/prototype-server.mjs"
+  },
+  "dependencies": {
+    "katex": "^0.19.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
