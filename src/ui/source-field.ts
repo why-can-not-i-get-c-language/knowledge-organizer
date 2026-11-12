@@ -1,36 +1,19 @@
 import katex from 'katex';
 import type { Anchor, Bank } from '../domain/contracts.ts';
 import { validateAnchor } from '../domain/quiz.ts';
+import { splitSource } from '../domain/source.ts';
+import type { SourceSegment } from '../domain/source.ts';
 
 export interface FieldRef {
   questionId: string;
   field: Anchor['field'];
   optionId?: string;
 }
-interface Segment { start: number; end: number; formula: boolean; display: boolean }
 export interface SourceField {
   element: HTMLElement;
   ref: FieldRef;
   source: string;
-  segments: Segment[];
-}
-
-// 只识别明确成对的数学分隔符；未闭合内容按原文显示，不猜测修复。
-export function splitSource(source: string): Segment[] {
-  const result: Segment[] = [];
-  const expression = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?:\\.|[^$\n])+?\$/g;
-  let start = 0;
-  for (const match of source.matchAll(expression)) {
-    const at = match.index;
-    // 转义美元符号不作为数学起点。
-    if (at > 0 && source[at - 1] === '\\') continue;
-    if (at > start) result.push({ start, end: at, formula: false, display: false });
-    const end = at + match[0].length;
-    result.push({ start: at, end, formula: true, display: match[0].startsWith('$$') || match[0].startsWith('\\[') });
-    start = end;
-  }
-  if (start < source.length) result.push({ start, end: source.length, formula: false, display: false });
-  return result;
+  segments: SourceSegment[];
 }
 
 export function createField(source: string, ref: FieldRef): SourceField {

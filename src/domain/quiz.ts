@@ -1,14 +1,15 @@
-import { AppError, bankSchema } from './contracts.ts';
+import { AppError, MAX_BANK_BYTES, anchorSchema, bankSchema, timestampSchema } from './contracts.ts';
+import { anchorMatches } from './anchors.ts';
 import type { Attempt, Bank, Question, Response, Annotation, Anchor } from './contracts.ts';
 
 export function importBank(json: string): Bank {
-  if (new TextEncoder().encode(json).length > 10 * 1024 * 1024)
+  if (typeof json !== 'string' || json.length > MAX_BANK_BYTES || new TextEncoder().encode(json).length > MAX_BANK_BYTES)
     throw new AppError('INVALID_INPUT', '题目文件超过10MiB，请拆分后导入');
   try { return bankSchema.parse(JSON.parse(json)); }
   catch { throw new AppError('INVALID_INPUT', '题目文件格式、版本或答案引用错误，请检查后重新导入'); }
 }
 export function createAttempt(bank: Bank, id: string, now: string): Attempt {
-  if (!id || !Number.isFinite(Date.parse(now))) throw new AppError('INVALID_INPUT', '作答ID或时间无效');
+  if (!id.trim() || id.length > 100 || !timestampSchema.safeParse(now).success) throw new AppError('INVALID_INPUT', '作答ID或时间无效');
   return { schemaVersion: 1, id, revision: 0, phase: 'answering', bank: bankSchema.parse(bank),
     responses: bank.questions.map(q => ({ questionId: q.id, selectedOptionIds: [], confirmed: false, understood: null })), createdAt: now };
 }
@@ -38,6 +39,8 @@ export function selectAnswer(a: Attempt, questionId: string, ids: string[], conf
 }
 export function submitAnswers(a: Attempt, now: string): Attempt {
   requirePhase(a, 'answering');
+  if (!timestampSchema.safeParse(now).success || Date.parse(now) < Date.parse(a.createdAt))
+    throw new AppError('INVALID_INPUT', '判分时间无效或早于创建时间');
   if (a.bank.questions.some(q => !a.responses.some(r => r.questionId === q.id && valid(q, r))))
     throw new AppError('INCOMPLETE', '请完成全部题目，多选题须确认答案');
   return { ...a, phase: 'reviewing', gradedAt: now };
@@ -49,6 +52,8 @@ export function assessUnderstanding(a: Attempt, questionId: string, understood: 
 }
 export function completeAttempt(a: Attempt, now: string): Attempt {
   requirePhase(a, 'reviewing');
+  if (!timestampSchema.safeParse(now).success || !a.gradedAt || Date.parse(now) < Date.parse(a.gradedAt))
+    throw new AppError('INVALID_INPUT', '完成时间无效或早于判分时间');
   if (a.responses.some(r => r.understood === null)) throw new AppError('INCOMPLETE', '请先完成解析后的逐题理解自评');
   return { ...a, phase: 'completed', completedAt: now };
 }
@@ -66,13 +71,8 @@ export function statistics(a: Attempt, marks: Annotation[] = []) {
     reworkQuestionIds: rows.filter(r => !r.correct || r.understood === false || r.hasDoubt).map(r => r.questionId) };
 }
 export function validateAnchor(bank: Bank, anchor: Anchor): void {
-  const q = bank.questions.find(q => q.id === anchor.questionId);
-  const value = q && (anchor.field === 'prompt' ? q.prompt : anchor.field === 'explanation' ? q.explanation : q.options.find(o => o.id === anchor.optionId)?.text);
-  if (!q || bank.id !== anchor.bankId || bank.version !== anchor.bankVersion || q.version !== anchor.questionVersion ||
-      value === undefined || !Number.isInteger(anchor.start) || !Number.isInteger(anchor.end) ||
-      anchor.start < 0 || anchor.end <= anchor.start || anchor.end > value.length ||
-      value.slice(anchor.start, anchor.end) !== anchor.quote ||
-      !value.slice(0, anchor.start).endsWith(anchor.prefix) || !value.slice(anchor.end).startsWith(anchor.suffix))
+  const parsed = anchorSchema.safeParse(anchor);
+  if (!parsed.success || !anchorMatches(bank, parsed.data))
     throw new AppError('ANCHOR_MISMATCH', '题目版本或选文位置已变化，请重新定位，不会自动贴到其他文字');
 }
 export function visibleQuestions(a: Attempt) {

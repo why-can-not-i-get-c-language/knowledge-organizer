@@ -1,6 +1,7 @@
 import 'katex/dist/katex.min.css';
 import './style.css';
 import type { Anchor, Annotation, Bank } from '../domain/contracts.ts';
+import { annotationSchema } from '../domain/contracts.ts';
 import { createAttempt, importBank, selectAnswer, submitAnswers, visibleQuestions, validateAnchor } from '../domain/quiz.ts';
 import { anchorForOffsets, anchorForRange, createField, paintField } from './source-field.ts';
 import type { SourceField } from './source-field.ts';
@@ -207,14 +208,13 @@ function recover(raw: string): { bank: Bank; marks: Annotation[] } {
   const restored = importBank(JSON.stringify(data.bank));
   if (data.marks.length > 1000) throw new Error('标记数量异常');
   const ids = new Set<string>();
-  for (const m of data.marks) {
-    if (!m || typeof m.id !== 'string' || ids.has(m.id) || typeof m.note !== 'string' || m.note.length > 4000 ||
-      m.attemptId !== 'selection-prototype' || !m.anchor || !['prompt', 'option', 'explanation'].includes(m.anchor.field) ||
-      !['text', 'formula'].includes(m.anchor.kind) || typeof m.anchor.quote !== 'string' || typeof m.anchor.prefix !== 'string' || typeof m.anchor.suffix !== 'string')
+  const restoredMarks = data.marks.map(mark => annotationSchema.parse(mark));
+  for (const m of restoredMarks) {
+    if (ids.has(m.id) || m.attemptId !== 'selection-prototype')
       throw new Error('标记格式不支持');
     validateAnchor(restored, m.anchor); ids.add(m.id);
   }
-  return { bank: restored, marks: data.marks };
+  return { bank: restored, marks: restoredMarks };
 }
 importer.addEventListener('change', () => {
   const file = importer.files?.[0]; if (!file) return;

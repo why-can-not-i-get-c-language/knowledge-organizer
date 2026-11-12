@@ -1,8 +1,11 @@
-import type { Attempt, Bank, Annotation, Anchor } from '../domain/contracts.ts';
+import type { Attempt, Bank, Annotation, Anchor, Conversation, Message } from '../domain/contracts.ts';
+export type { Conversation } from '../domain/contracts.ts';
 
 /** 持久化适配器须以事务原子保存；expectedRevision 实现并发冲突检测。 */
 export interface LearningRepository {
   importBank(bank: Bank): Promise<'inserted' | 'already-exists'>;
+  loadBank(id: string, version: string): Promise<Bank | null>;
+  listBanks(): Promise<Bank[]>;
   createAttempt(attempt: Attempt): Promise<void>;
   loadAttempt(id: string): Promise<Attempt | null>;
   saveAttempt(next: Attempt, expectedRevision: number): Promise<Attempt>;
@@ -22,9 +25,13 @@ export interface SecretStore {
   hasDeepSeekKey(): Promise<boolean>;
   removeDeepSeekKey(): Promise<void>;
 }
-export interface Conversation {
-  id: string; attemptId: string; questionId: string; annotationId?: string;
-  messages: { role: 'user' | 'assistant'; content: string }[];
+/** 会话按作答/题目/标记隔离；save须在同一事务校验引用和expectedRevision。 */
+export interface ConversationRepository {
+  createConversation(conversation: Conversation): Promise<void>;
+  loadConversation(id: string): Promise<Conversation | null>;
+  listConversations(attemptId: string, questionId: string, annotationId?: string): Promise<Conversation[]>;
+  saveConversation(next: Conversation, expectedRevision: number): Promise<Conversation>;
+  deleteConversation(id: string): Promise<void>;
 }
 export interface QuestionContext {
   bankId: string; bankVersion: string; questionId: string;
@@ -39,7 +46,7 @@ export type AIEvent =
   | { type: 'finished' };
 /** 此接口仅定义协议，尚无真实网络实现。取消/失败必须抛可识别错误，不发 finished。 */
 export interface AIProvider {
-  stream(request: { model: string; context: QuestionContext; history: Conversation['messages'];
+  stream(request: { model: string; context: QuestionContext; history: Pick<Message, 'role' | 'content'>[];
     question: string; maxOutputTokens: number }, signal: AbortSignal): AsyncIterable<AIEvent>;
 }
 export interface BackupPort {
