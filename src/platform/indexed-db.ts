@@ -1,8 +1,8 @@
 import type { z } from 'zod';
 import { AppError, bankSchema, annotationSchema, conversationSchema } from '../domain/contracts.ts';
-import type { Annotation, Attempt, Bank, Conversation } from '../domain/contracts.ts';
-import type { ConversationRepository, LearningRepository } from '../application/ports.ts';
-import { parseAttempt, parseAnnotation, parseConversation, validateAttemptUpdate, validateConversationUpdate } from '../domain/records.ts';
+import type { Annotation, Attempt, Bank, Conversation, Backup } from '../domain/contracts.ts';
+import type { BackupPort, ConversationRepository, LearningRepository } from '../application/ports.ts';
+import { parseAttempt, parseAnnotation, parseConversation, parseBackup, serializeBackup, validateAttemptUpdate, validateConversationUpdate } from '../domain/records.ts';
 
 const stores = ['banks', 'attempts', 'annotations', 'conversations'];
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -38,7 +38,7 @@ function requireAttempt(attempt: Attempt | null): Attempt {
 }
 
 /** 网页/系统WebView的真实存储适配。没有内存或localStorage成功回退。 */
-export class IndexedDbRepository implements LearningRepository, ConversationRepository {
+export class IndexedDbRepository implements LearningRepository, ConversationRepository, BackupPort {
   private closed = false;
   private constructor(private readonly database: IDBDatabase) {
     database.onversionchange = () => this.close();
@@ -277,6 +277,55 @@ export class IndexedDbRepository implements LearningRepository, ConversationRepo
       const current = await this.conversation(tx, stored(conversationSchema, raw));
       if (current.revision !== expectedRevision) conflict('会话已有新消息，请重新读取后再删除');
       await request(store.delete(id));
+    });
+  }
+
+  private async snapshot(tx: IDBTransaction): Promise<Backup> {
+    const [banks, attempts, annotations, conversations] = await Promise.all(stores.map(name => request(tx.objectStore(name).getAll())));
+    return parseBackup(JSON.stringify({ format: 'knowledge-organizer.backup', schemaVersion: 1,
+      exportedAt: new Date().toISOString(), banks, attempts, annotations, conversations }));
+  }
+  async exportLocalData(): Promise<string> {
+    return this.transact('readonly', async tx => serializeBackup(await this.snapshot(tx)));
+  }
+  private conflicts(current: Backup, incoming: Backup): string[] {
+    const result: string[] = [];
+    for (const name of ['banks', 'attempts', 'annotations', 'conversations'] as const) {
+      const key = (record: { id: string; version?: string }) => name === 'banks' ? JSON.stringify([record.id, record.version]) : record.id;
+      const existing = new Map(current[name].map(record => [key(record), record]));
+      for (const record of incoming[name]) {
+        const old = existing.get(key(record));
+        if (old && !same(old, record)) result.push(`${name}: ${key(record)}`);
+      }
+    }
+    return result;
+  }
+  async inspectBackup(json: string): Promise<{ compatible: boolean; conflicts: string[]; error?: string }> {
+    let incoming: Backup;
+    try { incoming = parseBackup(json); }
+    catch (error) { return { compatible: false, conflicts: [], error: (error as Error).message }; }
+    return this.transact('readonly', async tx => ({ compatible: true, conflicts: this.conflicts(await this.snapshot(tx), incoming) }));
+  }
+  async restoreBackup(json: string, conflictPolicy: 'reject' | 'keep-existing'): Promise<void> {
+    const incoming = parseBackup(json);
+    if (!['reject', 'keep-existing'].includes(conflictPolicy)) throw new AppError('INVALID_INPUT', '请选择明确的恢复冲突策略');
+    return this.transact('readwrite', async tx => {
+      const current = await this.snapshot(tx);
+      if (conflictPolicy === 'reject' && this.conflicts(current, incoming).length) conflict('备份与现有记录有冲突，请预览后选择保留现有记录');
+      const merged = structuredClone(current);
+      // 此时间仅供合并集合校验，不写成实际导出时间，不更改记录的原始时间。
+      merged.exportedAt = new Date(Math.max(Date.parse(current.exportedAt), Date.parse(incoming.exportedAt))).toISOString();
+      const additions: { store: string; value: unknown }[] = [];
+      for (const name of ['banks', 'attempts', 'annotations', 'conversations'] as const) {
+        const key = (record: { id: string; version?: string }) => name === 'banks' ? JSON.stringify([record.id, record.version]) : record.id;
+        const keys = new Set(current[name].map(key));
+        for (const record of incoming[name]) if (!keys.has(key(record))) {
+          // 各集合类型由随后的全包校验再次核对，写入前不得跳过引用校验。
+          (merged[name] as unknown[]).push(record); additions.push({ store: name, value: record });
+        }
+      }
+      parseBackup(JSON.stringify(merged));
+      for (const addition of additions) await request(tx.objectStore(addition.store).add(addition.value));
     });
   }
 }

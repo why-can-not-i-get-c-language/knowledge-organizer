@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "vite src/ui --host 127.0.0.1",
-    "build": "vite build src/ui --outDir ../../dist --emptyOutDir",
+    "build": "node src/platform/build.mjs",
     "prototype": "node src/platform/prototype-server.mjs"
   },
   "dependencies": {

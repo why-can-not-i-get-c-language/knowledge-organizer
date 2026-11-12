@@ -17,7 +17,7 @@ export interface LearningRepository {
 }
 export interface DeviceServices {
   readImportFile(): Promise<string | null>;
-  writeExportFile(name: string, content: string): Promise<'saved' | 'cancelled'>;
+  writeExportFile(name: string, content: string): Promise<'saved' | 'download-requested' | 'cancelled'>;
   copyText(content: string): Promise<void>;
 }
 /** 密钥单独存于系统安全存储，不进入学习记录或备份。 */
@@ -53,6 +53,6 @@ export interface AIProvider {
 export interface BackupPort {
   exportLocalData(): Promise<string>;
   // restore 必须先验证整个备份，明确冲突，再原子写入；格式不兼容不能部分覆盖。
-  inspectBackup(json: string): Promise<{ compatible: boolean; conflicts: string[] }>;
+  inspectBackup(json: string): Promise<{ compatible: boolean; conflicts: string[]; error?: string }>;
   restoreBackup(json: string, conflictPolicy: 'reject' | 'keep-existing'): Promise<void>;
 }

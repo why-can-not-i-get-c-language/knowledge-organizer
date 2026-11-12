@@ -5,8 +5,15 @@ import type { Attempt, Bank, Question, Response, Annotation, Anchor } from './co
 export function importBank(json: string): Bank {
   if (typeof json !== 'string' || json.length > MAX_BANK_BYTES || new TextEncoder().encode(json).length > MAX_BANK_BYTES)
     throw new AppError('INVALID_INPUT', '题目文件超过10MiB，请拆分后导入');
-  try { return bankSchema.parse(JSON.parse(json)); }
-  catch { throw new AppError('INVALID_INPUT', '题目文件格式、版本或答案引用错误，请检查后重新导入'); }
+  let value: unknown;
+  try { value = JSON.parse(json); }
+  catch { throw new AppError('INVALID_INPUT', '题目文件不是有效JSON，请检查文件后重新导入'); }
+  const parsed = bankSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]!;
+    throw new AppError('INVALID_INPUT', `题目文件 ${issue.path.join('.') || '根对象'}：${issue.message}。请检查后重新导入`);
+  }
+  return parsed.data;
 }
 export function createAttempt(bank: Bank, id: string, now: string): Attempt {
   if (!id.trim() || id.length > 100 || !timestampSchema.safeParse(now).success) throw new AppError('INVALID_INPUT', '作答ID或时间无效');

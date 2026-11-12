@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // 仅交付已构建静态页面，以及显式指定的本地练习文件；不暴露项目目录。
-const root = resolve('dist');
+const root = resolve(fileURLToPath(new URL('../../dist/', import.meta.url)));
 const bankFile = process.argv[2] ? resolve(process.argv[2]) : null;
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || '127.0.0.1';
@@ -21,7 +22,7 @@ const server = createServer(async (request, response) => {
     const path = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
     if (path !== root && !path.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
     const isBank = pathname === '/prototype-bank.json';
-    if (isBank && !bankFile) { response.writeHead(404); response.end(); return; }
+    if (isBank && !bankFile) { response.writeHead(204); response.end(); return; }
     const bytes = await readFile(isBank ? bankFile : path);
     response.setHeader('Content-Type', types[isBank ? '.json' : extname(path)] || 'application/octet-stream');
     response.writeHead(200); response.end(request.method === 'HEAD' ? undefined : bytes);
