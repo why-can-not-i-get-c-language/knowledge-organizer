@@ -250,6 +250,28 @@ async function restoreBackup() {
   if (!choice) { say('已取消恢复。'); return; }
   await repository.restoreBackup(json, choice); await home('history'); say('备份已完整验证并恢复。');
 }
+const fontControl = el('label', '阅读字号', 'font-control');
+const fontSlider = el('input'), fontValue = el('output');
+const fontPreferenceKey = 'knowledge-organizer.reading-font-size';
+fontSlider.type = 'range'; fontSlider.min = '14'; fontSlider.max = '30'; fontSlider.step = '1';
+fontSlider.setAttribute('aria-label', '阅读字号');
+function applyFontSize(size: number) {
+  fontSlider.value = String(size); fontValue.value = `${size}px`;
+  fontSlider.setAttribute('aria-valuetext', `${size}像素`);
+  document.documentElement.style.setProperty('--reading-font-size', `${size}px`);
+}
+let preferredFontSize = 18;
+try {
+  const saved = Number(localStorage.getItem(fontPreferenceKey));
+  if (Number.isInteger(saved) && saved >= 14 && saved <= 30) preferredFontSize = saved;
+} catch { /* 字号偏好不可读时仍可正常学习。 */ }
+applyFontSize(preferredFontSize);
+fontSlider.addEventListener('input', () => applyFontSize(Number(fontSlider.value)));
+fontSlider.addEventListener('change', () => {
+  try { localStorage.setItem(fontPreferenceKey, fontSlider.value); }
+  catch { say('字号已调整；当前浏览器不能保存字号偏好，下次打开会恢复默认。'); }
+});
+fontControl.append(fontSlider, fontValue);
 navigation.append(button('题库', () => run(() => home('banks'))), button('学习记录', () => run(() => home('history'))), button('导入题集', () => run(async () => {
   const text = await device.readImportFile(); if (text !== null) await importQuestions(text); else say('已取消导入。');
 })), button('导出备份', () => run(exportBackup)), button('恢复备份', () => run(restoreBackup)), button('重试保存', () => run(async () => {
@@ -260,7 +282,7 @@ navigation.append(button('题库', () => run(() => home('banks'))), button('学�
   await Promise.all(queues().map(queue => queue.flush().catch(() => {})));
   const id = session?.value.id; for (const queue of queues()) queue.discardPending(); transitionPending = false;
   if (id) await openAttempt(id); say('已重新读取本机记录。');
-})), button('字号', () => document.body.classList.toggle('large-text')), button('明暗', () => document.body.classList.toggle('dark')));
+})), fontControl, button('明暗', () => document.body.classList.toggle('dark')));
 function captureSelection() {
   if (!session) return; const selection = window.getSelection(); if (!selection?.rangeCount || selection.isCollapsed) return;
   const range = selection.getRangeAt(0), field = fields.find(f => f.element.contains(range.startContainer)); if (!field) { pending = undefined; toolbar.hidden = true; return; }
