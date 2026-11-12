@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const project = fileURLToPath(new URL('../../', import.meta.url));
 const root = resolve(project, 'dist');
 await build({ root: resolve(project, 'src/ui'), logLevel: 'warn', build: { outDir: root, emptyOutDir: true } });
+await build({ root: resolve(project, 'src/design'), base: './', logLevel: 'warn', build: { outDir: resolve(root, 'design'), emptyOutDir: true } });
 async function files(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map(entry => entry.isDirectory() ? files(resolve(directory, entry.name)) : [resolve(directory, entry.name)]));

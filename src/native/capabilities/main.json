@@ -1,0 +1,14 @@
+{
+  "identifier": "main",
+  "description": "本地学习窗口：仅允许用户选择的文件读写与主动复制",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-stat",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "clipboard-manager:allow-write-text"
+  ]
+}

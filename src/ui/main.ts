@@ -7,11 +7,14 @@ import { SaveCoordinator } from '../application/save-coordinator.ts';
 import { explanationBatches } from '../application/explanation-batches.ts';
 import { IndexedDbRepository } from '../platform/indexed-db.ts';
 import { BrowserDeviceServices } from '../platform/browser-device.ts';
+import { TauriDeviceServices } from '../platform/tauri-device.ts';
+import { isTauri } from '@tauri-apps/api/core';
 import { anchorForOffsets, anchorForRange, createField, paintField } from './source-field.ts';
 import type { SourceField } from './source-field.ts';
 
 const app = document.querySelector<HTMLElement>('#app')!;
-const device = new BrowserDeviceServices();
+const nativeHost = isTauri();
+const device = nativeHost ? new TauriDeviceServices() : new BrowserDeviceServices();
 let repository: IndexedDbRepository;
 let session: SaveCoordinator<Attempt> | undefined;
 let markSessions = new Map<string, SaveCoordinator<Annotation | null>>();
@@ -283,6 +286,7 @@ navigation.append(button('题库', () => run(() => home('banks'))), button('学�
   const id = session?.value.id; for (const queue of queues()) queue.discardPending(); transitionPending = false;
   if (id) await openAttempt(id); say('已重新读取本机记录。');
 })), fontControl, button('明暗', () => document.body.classList.toggle('dark')));
+if (nativeHost) navigation.append(button('新界面体验', () => run(async () => { await flushCurrent(); location.href = '/design/index.html'; })));
 function captureSelection() {
   if (!session) return; const selection = window.getSelection(); if (!selection?.rangeCount || selection.isCollapsed) return;
   const range = selection.getRangeAt(0), field = fields.find(f => f.element.contains(range.startContainer)); if (!field) { pending = undefined; toolbar.hidden = true; return; }
@@ -299,13 +303,14 @@ async function start() {
     repository = await IndexedDbRepository.open();
     await home('banks'); say('内容保存在当前设备，建议定期导出备份。');
     // 可选示例不阻塞本地题库启动；离线或电脑关闭时仍可立即打开既有数据。
-    void fetch('/prototype-bank.json', { signal: AbortSignal.timeout(8000) }).then(async response => {
+    if (!nativeHost) void fetch('/prototype-bank.json', { signal: AbortSignal.timeout(8000) }).then(async response => {
       if (response.ok && response.status !== 204) {
         sample = importBank(await response.text());
         document.querySelector('.empty-card')?.append(button('载入练习题集', () => run(() => importQuestions(JSON.stringify(sample)))));
       }
     }).catch(() => {});
-    if ('serviceWorker' in navigator && import.meta.env.PROD) void navigator.serviceWorker.register('/sw.js').then(async registration => {
+    if (nativeHost) offlineState.textContent = '离线安装版';
+    if (!nativeHost && 'serviceWorker' in navigator && import.meta.env.PROD) void navigator.serviceWorker.register('/sw.js').then(async registration => {
       await navigator.serviceWorker.ready; offlineState.textContent = '离线页面已准备';
       if (registration.waiting) offlineState.textContent = '新版本已下载，保存后关闭所有学习窗口再打开';
       registration.addEventListener('updatefound', () => { const worker = registration.installing; worker?.addEventListener('statechange', () => {

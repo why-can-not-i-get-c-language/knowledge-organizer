@@ -10,6 +10,8 @@ import {
   anchorForOffsets,
 } from "../ui/source-field.ts";
 import type { SourceField } from "../ui/source-field.ts";
+import { isTauri } from '@tauri-apps/api/core';
+import { TauriDeviceServices } from '../platform/tauri-device.ts';
 import {
   updateConceptSummary,
   quoteDiscussionText,
@@ -56,6 +58,8 @@ const groups: Group[] = [
   { id: "term", name: "本学期", parent: "root", open: true },
 ];
 const cards: Card[] = [];
+const nativeHost = isTauri();
+const nativeDevice = nativeHost ? new TauriDeviceServices() : null;
 let current: Card | undefined,
   chosenGroup: string | null = null,
   screen: "library" | "setup" | "quiz" | "results" = "library";
@@ -96,6 +100,10 @@ const desktop = btn("桌面", () => setPhone(false)),
   mobile = btn("手机", () => setPhone(true));
 sizes.append(desktop, mobile);
 studio.append(brand, sizes);
+if (nativeHost) {
+  brand.querySelector('span')!.textContent = '新界面体验 · 退出后重置，正式记录请进入本地学习';
+  studio.append(btn('本地学习（自动保存）', () => { location.href = '/index.html'; }, 'primary'));
+}
 const shell = el("div", "", "shell");
 const sidebar = el("aside", "", "sidebar");
 const backdrop = btn(
@@ -418,6 +426,14 @@ function addBank(bank: Bank) {
   return true;
 }
 function pickFile() {
+  if (nativeDevice) {
+    void nativeDevice.readImportFile().then(text => {
+      if (text === null) return;
+      const added = addBank(importBank(text)); render();
+      say(added ? '已载入新界面体验，退出后重置；需保存记录请进入“本地学习”。' : '本次预览已有这套题。');
+    }).catch(error => say(error instanceof Error ? error.message : '无法读取文件，请重新选择。'));
+    return;
+  }
   const input = el("input");
   input.type = "file";
   input.accept = ".json,application/json";
@@ -440,6 +456,7 @@ function pickFile() {
   input.click();
 }
 function scanDialog() {
+  if (nativeHost) { say('安卓扫描尚未接入。请用“导入套题”从系统文件选择器打开JSON题集。'); return; }
   const dialog = el("dialog");
   dialog.append(
     el("h2", "发现设备中的题集"),
@@ -1304,8 +1321,8 @@ document.addEventListener("keydown", (event) => {
 });
 render();
 try {
-  const response = await fetch("/design-bank.json");
-  if (response.ok && response.status !== 204) {
+  const response = nativeHost ? null : await fetch("/design-bank.json");
+  if (response?.ok && response.status !== 204) {
     addBank(importBank(await response.text()));
     render();
     say("已载入本地练习文件。可以开始体验，也可导入自己的 JSON。");

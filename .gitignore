@@ -18,3 +18,15 @@
 *.sqlite-*
 *.pem
 *.key
+**/target/
+**/.gradle/
+**/.kotlin/
+**/.cxx/
+**/.idea/
+**/local.properties
+**/gen/schemas/
+**/gen/android/.tauri/
+*.keystore
+*.jks
+*.p12
+*.password
