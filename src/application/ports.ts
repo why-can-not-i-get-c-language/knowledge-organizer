@@ -10,9 +10,10 @@ export interface LearningRepository {
   loadAttempt(id: string): Promise<Attempt | null>;
   saveAttempt(next: Attempt, expectedRevision: number): Promise<Attempt>;
   listAttempts(): Promise<Attempt[]>;
-  saveAnnotation(mark: Annotation): Promise<void>;
+  // null表示只新建；更新/删除必须提供最后读到的完整快照，防止旧备注覆盖新值。
+  saveAnnotation(mark: Annotation, expected: Annotation | null): Promise<void>;
   listAnnotations(attemptId: string): Promise<Annotation[]>;
-  deleteAnnotation(id: string): Promise<void>;
+  deleteAnnotation(id: string, expected: Annotation): Promise<void>;
 }
 export interface DeviceServices {
   readImportFile(): Promise<string | null>;
@@ -31,7 +32,7 @@ export interface ConversationRepository {
   loadConversation(id: string): Promise<Conversation | null>;
   listConversations(attemptId: string, questionId: string, annotationId?: string): Promise<Conversation[]>;
   saveConversation(next: Conversation, expectedRevision: number): Promise<Conversation>;
-  deleteConversation(id: string): Promise<void>;
+  deleteConversation(id: string, expectedRevision: number): Promise<void>;
 }
 export interface QuestionContext {
   bankId: string; bankVersion: string; questionId: string;
