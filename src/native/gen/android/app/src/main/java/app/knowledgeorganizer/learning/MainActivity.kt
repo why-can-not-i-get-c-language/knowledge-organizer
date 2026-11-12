@@ -2,11 +2,20 @@ package app.knowledgeorganizer.learning
 
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  private var learningWebView: WebView? = null
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    learningWebView = webView
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -18,5 +27,15 @@ class MainActivity : TauriActivity() {
       insets
     }
     ViewCompat.requestApplyInsets(content)
+    // 返回由应用的分组/练习状态处理，不遍历WebView访问历史。
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val webView = learningWebView
+        if (webView == null) { finish(); return }
+        webView.evaluateJavascript("(() => { const back = window.__knowledgeOrganizerBack; if (typeof back !== 'function') return false; back(); return true; })()") { handled ->
+          if (handled == "false") finish()
+        }
+      }
+    })
   }
 }

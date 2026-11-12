@@ -286,7 +286,6 @@ navigation.append(button('题库', () => run(() => home('banks'))), button('学�
   const id = session?.value.id; for (const queue of queues()) queue.discardPending(); transitionPending = false;
   if (id) await openAttempt(id); say('已重新读取本机记录。');
 })), fontControl, button('明暗', () => document.body.classList.toggle('dark')));
-if (nativeHost) navigation.append(button('新界面体验', () => run(async () => { await flushCurrent(); location.href = '/design/index.html'; })));
 function captureSelection() {
   if (!session) return; const selection = window.getSelection(); if (!selection?.rangeCount || selection.isCollapsed) return;
   const range = selection.getRangeAt(0), field = fields.find(f => f.element.contains(range.startContainer)); if (!field) { pending = undefined; toolbar.hidden = true; return; }

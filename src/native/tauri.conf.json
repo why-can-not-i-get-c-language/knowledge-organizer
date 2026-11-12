@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "知识梳理器",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "app.knowledgeorganizer.learning",
   "build": { "frontendDist": "../../dist" },
   "app": {
-    "windows": [{ "label": "main", "title": "知识梳理器", "url": "design/index.html", "width": 1200, "height": 800 }],
+    "windows": [{ "label": "main", "title": "知识梳理器", "url": "index.html", "width": 1200, "height": 800 }],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'"
     }

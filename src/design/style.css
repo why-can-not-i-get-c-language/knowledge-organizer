@@ -9,6 +9,51 @@
   --line: #e4e9e3;
   --muted: #7b8881;
 }
+[hidden] {
+  display: none !important;
+}
+.studio {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.studio > div:first-child {
+  flex: 1;
+  min-width: 120px;
+}
+.save-status {
+  font-size: 11px;
+  color: #6b806e;
+}
+.save-status[data-state="error"] {
+  color: #b44931;
+}
+.studio > .text-button {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.option[role] {
+  cursor: pointer;
+}
+.option[aria-disabled="true"] {
+  cursor: default;
+}
+.option[role]:focus-visible {
+  outline: 3px solid #8baa81;
+  outline-offset: 3px;
+}
+.shell .source-field,
+.discussion-panel .discussion-text {
+  font-size: var(--reading-size, 18px);
+}
+.shell .option .source-field {
+  font-size: calc(var(--reading-size, 18px) * 0.92);
+}
+.shell .question-page .source-field {
+  font-size: var(--reading-size, 18px);
+}
+.shell .question-page .option .source-field {
+  font-size: calc(var(--reading-size, 18px) * 0.92);
+}
 * {
   box-sizing: border-box;
 }

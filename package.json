@@ -1,11 +1,11 @@
 {
   "name": "knowledge-organizer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "dev": "vite src/ui --host 127.0.0.1",
+    "dev": "vite src/design --host 127.0.0.1",
     "build": "node src/platform/build.mjs",
     "prototype": "node src/platform/prototype-server.mjs",
     "android:build": "powershell -NoProfile -ExecutionPolicy Bypass -File src/platform/android.ps1"

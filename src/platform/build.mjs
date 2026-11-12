@@ -1,13 +1,15 @@
 import { build } from 'vite';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const project = fileURLToPath(new URL('../../', import.meta.url));
 const root = resolve(project, 'dist');
-await build({ root: resolve(project, 'src/ui'), logLevel: 'warn', build: { outDir: root, emptyOutDir: true } });
-await build({ root: resolve(project, 'src/design'), base: './', logLevel: 'warn', build: { outDir: resolve(root, 'design'), emptyOutDir: true } });
+await build({ root: resolve(project, 'src/design'), base: '/', logLevel: 'warn', build: { outDir: root, emptyOutDir: true } });
+// 兼容0.2.0的启动路径；两个URL均加载同一个应用，不提供第二套页面。
+await mkdir(resolve(root, 'design'), { recursive: true });
+await writeFile(resolve(root, 'design/index.html'), await readFile(resolve(root, 'index.html')));
 async function files(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map(entry => entry.isDirectory() ? files(resolve(directory, entry.name)) : [resolve(directory, entry.name)]));

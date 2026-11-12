@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { anchorMatches } from './anchors.ts';
+export type { Workspace, WorkspaceCard, WorkspaceRound, WorkspaceAnswer, WorkspaceGroup, WorkspaceDiscussion } from './workspace.ts';
 
 export const MAX_BANK_BYTES = 10 * 1024 * 1024;
 export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;

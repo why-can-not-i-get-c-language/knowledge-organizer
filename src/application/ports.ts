@@ -1,5 +1,11 @@
 import type { Attempt, Bank, Annotation, Anchor, Conversation, Message } from '../domain/contracts.ts';
 import type { ConceptSummary, DiscussionQuote } from './concept-summary.ts';
+import type { Workspace } from '../domain/contracts.ts';
+export interface WorkspaceRepository {
+  load(): Promise<Workspace | null>;
+  save(next: Workspace, expectedRevision: number | null): Promise<Workspace>;
+  close(): void;
+}
 export type { Conversation } from '../domain/contracts.ts';
 
 /** 持久化适配器须以事务原子保存；expectedRevision 实现并发冲突检测。 */
