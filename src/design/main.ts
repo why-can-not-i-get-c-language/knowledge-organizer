@@ -10,6 +10,14 @@ import {
   anchorForOffsets,
 } from "../ui/source-field.ts";
 import type { SourceField } from "../ui/source-field.ts";
+import {
+  updateConceptSummary,
+  quoteDiscussionText,
+} from "../application/concept-summary.ts";
+import type {
+  ConceptSummary,
+  DiscussionQuote,
+} from "../application/concept-summary.ts";
 
 // 独立的交互设计状态，不写入正式数据库，不改变v1作答阶段约定。
 interface Group {
@@ -28,6 +36,14 @@ interface Answer {
   locked: boolean;
   understood: boolean | null;
   marks: Anchor[];
+  discussions: Map<Anchor, Discussion>;
+}
+interface Discussion {
+  id: string;
+  anchor: Anchor;
+  summary: ConceptSummary | null;
+  drafts: { id: string; text: string; quote?: DiscussionQuote }[];
+  draft: string;
 }
 interface Round {
   mode: "immediate" | "batch";
@@ -99,6 +115,7 @@ function setPhone(value: boolean) {
   layout();
 }
 function layout() {
+  root.classList.toggle("preview-phone", phone);
   shell.classList.toggle("phone", phone);
   shell.classList.toggle("drawer", drawer);
   desktop.setAttribute("aria-pressed", String(!phone));
@@ -579,6 +596,7 @@ function setup() {
             locked: false,
             understood: null,
             marks: [],
+            discussions: new Map(),
           })),
         };
         screen = "quiz";
@@ -605,6 +623,24 @@ function textField(
     addMark(anchorForOffsets(current!.bank, data, start, end), answer),
   );
   fields.push(data);
+  data.element.addEventListener("click", (event) => {
+    if (
+      !(event.target as Element).closest(".highlight") ||
+      window.getSelection()?.toString()
+    )
+      return;
+    const range = document.createRange();
+    range.selectNodeContents(event.target as Node);
+    const hit = anchorForRange(current!.bank, data, range);
+    const anchor = answer.marks.find(
+      (a) =>
+        a.field === field &&
+        a.optionId === optionId &&
+        a.start < hit.end &&
+        a.end > hit.start,
+    );
+    if (anchor) openDiscussion(answer, anchor);
+  });
   return data.element;
 }
 function addMark(anchor: Anchor, answer: Answer) {
@@ -620,7 +656,15 @@ function addMark(anchor: Anchor, answer: Answer) {
     answer.marks.push(anchor);
   window.getSelection()?.removeAllRanges();
   render();
-  say("疑问已留在本次预览中，与整题理解评价独立。");
+  const saved = answer.marks.find(
+    (a) =>
+      a.field === anchor.field &&
+      a.optionId === anchor.optionId &&
+      a.start === anchor.start &&
+      a.end === anchor.end,
+  )!;
+  openDiscussion(answer, saved);
+  say("可填写概括或准备提问。当前未连接DeepSeek，不会发送请求。");
 }
 function equal(a: string[], b: string[]) {
   return a.length === b.length && a.every((id) => b.includes(id));
@@ -758,9 +802,257 @@ function questionPage(index: number) {
   );
   mark.onmousedown = (e) => e.preventDefault();
   page.append(mark);
-  for (const anchor of answer.marks)
-    page.append(el("blockquote", anchor.quote, "doubt"));
+  for (const anchor of answer.marks) {
+    const discussion = answer.discussions.get(anchor);
+    const note = btn("", () => openDiscussion(answer, anchor), "concept-link");
+    note.append(
+      el(
+        "strong",
+        discussion?.drafts.length
+          ? "◉ 已准备提问"
+          : discussion?.summary
+            ? "◈ 已有概括"
+            : "◇ 局部疑问",
+      ),
+      el("span", anchor.quote),
+      el("small", discussion?.summary?.text || "点开查看概括与讨论 →"),
+    );
+    page.append(note);
+  }
   return page;
+}
+
+function openDiscussion(answer: Answer, anchor: Anchor) {
+  let discussion = answer.discussions.get(anchor);
+  if (!discussion) {
+    discussion = {
+      id: crypto.randomUUID(),
+      anchor,
+      summary: null,
+      drafts: [],
+      draft: "",
+    };
+    answer.discussions.set(anchor, discussion);
+  }
+  const item = discussion;
+  const dialog = el("dialog", "", "discussion-panel");
+  const heading = el("div", "", "discussion-heading");
+  heading.append(
+    el("h2", "这个概念"),
+    btn("关闭", () => dialog.close(), "text-button"),
+  );
+  dialog.append(
+    heading,
+    el("p", "交互预览 · DeepSeek尚未连接 · 刷新会重置", "connection-state"),
+    el("blockquote", anchor.quote, "doubt"),
+  );
+  const body = el("div", "", "discussion-body");
+  dialog.append(body);
+  const feedback = el("p", "", "muted");
+  feedback.setAttribute("role", "status");
+  dialog.append(feedback);
+  let view: "summary" | "chat" = "summary";
+  let selection: DiscussionQuote | undefined;
+  function capture(
+    element: HTMLElement,
+    sourceId: string,
+    revision: number,
+    source: string,
+  ) {
+    const selected = window.getSelection();
+    if (!selected?.rangeCount || !selected.toString()) return;
+    const range = selected.getRangeAt(0);
+    if (
+      !element.contains(range.startContainer) ||
+      !element.contains(range.endContainer)
+    )
+      return;
+    const before = document.createRange();
+    before.selectNodeContents(element);
+    before.setEnd(range.startContainer, range.startOffset);
+    const through = document.createRange();
+    through.selectNodeContents(element);
+    through.setEnd(range.endContainer, range.endOffset);
+    selection = quoteDiscussionText(
+      sourceId,
+      revision,
+      source,
+      before.toString().length,
+      through.toString().length,
+    );
+    feedback.textContent = `已选中“${selection.quote}”，可点“就选文继续问”。`;
+  }
+  function selectable(text: string, id: string, revision: number) {
+    const element = el("div", text, "discussion-text");
+    element.addEventListener("pointerup", () =>
+      capture(element, id, revision, text),
+    );
+    element.addEventListener("keyup", () =>
+      capture(element, id, revision, text),
+    );
+    return element;
+  }
+  function draw() {
+    body.replaceChildren();
+    if (view === "summary") {
+      body.append(el("h3", "概念概括"));
+      if (item.summary)
+        body.append(
+          selectable(
+            item.summary.text,
+            item.id + ":summary",
+            item.summary.revision,
+          ),
+        );
+      else
+        body.append(
+          el(
+            "p",
+            "还没有概括。你可以写一句自己的理解，之后也可让AI提出概括候选。",
+            "muted",
+          ),
+        );
+      const label = el("label", "编辑概括"),
+        editor = el("textarea");
+      editor.value = item.summary?.text ?? "";
+      editor.maxLength = 20000;
+      editor.rows = 5;
+      label.append(editor);
+      body.append(label);
+      const expected = item.summary?.revision ?? null;
+      const actions = el("div", "", "actions");
+      actions.append(
+        btn(
+          "保存概括",
+          () => {
+            try {
+              item.summary = updateConceptSummary(
+                item.summary,
+                { text: editor.value, author: "user" },
+                expected,
+                new Date().toISOString(),
+              );
+              feedback.textContent = "概括已保留在本次预览中。";
+              draw();
+            } catch (error) {
+              feedback.textContent =
+                error instanceof Error ? error.message : "概括无法保存";
+            }
+          },
+          "primary",
+        ),
+      );
+      const summarize = btn("让AI概括", () => {});
+      summarize.disabled = true;
+      summarize.title = "真实DeepSeek接通后启用";
+      actions.append(
+        summarize,
+        btn("继续问 →", () => {
+          view = "chat";
+          selection = undefined;
+          draw();
+        }),
+        btn("就选文继续问", () => {
+          if (!selection) {
+            feedback.textContent = "先在上面的概括中选择一段文字。";
+            return;
+          }
+          view = "chat";
+          draw();
+        }),
+      );
+      body.append(
+        actions,
+        el(
+          "p",
+          "点击原文标记会先回到这里。概括与完整讨论分别保留，概括不会改写题目答案。",
+          "muted",
+        ),
+      );
+    } else {
+      body.append(
+        btn(
+          "← 查看概括",
+          () => {
+            view = "summary";
+            selection = undefined;
+            draw();
+          },
+          "text-button",
+        ),
+        el("h3", "本处讨论"),
+      );
+      if (!item.drafts.length)
+        body.append(
+          el("p", "尚未发送问题。这里将显示真实回答和追问历史。", "muted"),
+        );
+      for (const draft of item.drafts) {
+        const message = el("article", "", "discussion-message");
+        message.append(el("small", "我的提问草稿 · 未发送"));
+        if (draft.quote)
+          message.append(el("blockquote", draft.quote.quote, "doubt"));
+        message.append(selectable(draft.text, draft.id, 0));
+        body.append(message);
+      }
+      const quoted = el(
+        "blockquote",
+        selection
+          ? `针对选文：${selection.quote}`
+          : "提问背景：本题与上方标记片段",
+        "doubt",
+      );
+      body.append(quoted);
+      const label = el("label", "继续提问"),
+        input = el("textarea");
+      input.rows = 4;
+      input.value = item.draft;
+      input.maxLength = 20000;
+      input.placeholder = "不用先组织术语，直接说哪里没想明白…";
+      input.oninput = () => {
+        item.draft = input.value;
+      };
+      label.append(input);
+      body.append(label);
+      const actions = el("div", "", "actions");
+      actions.append(
+        btn("就选文继续问", () => {
+          if (!selection) {
+            feedback.textContent = "先在之前的文字中拖选一段内容。";
+            return;
+          }
+          quoted.textContent = `针对选文：${selection.quote}`;
+          input.focus();
+        }),
+        btn(
+          "保留提问草稿",
+          () => {
+            if (!input.value.trim()) {
+              feedback.textContent = "请先输入问题。";
+              return;
+            }
+            item.drafts.push({
+              id: crypto.randomUUID(),
+              text: input.value.trim(),
+              ...(selection ? { quote: selection } : {}),
+            });
+            item.draft = "";
+            selection = undefined;
+            feedback.textContent = "仅保留草稿，尚未向DeepSeek发送。";
+            draw();
+          },
+          "primary",
+        ),
+      );
+      const send = btn("发送给DeepSeek", () => {});
+      send.disabled = true;
+      send.title = "尚未接通API";
+      actions.append(send);
+      body.append(actions);
+    }
+  }
+  dialog.addEventListener("close", () => render(), { once: true });
+  draw();
+  showDialog(dialog);
 }
 function quiz() {
   const card = current!,

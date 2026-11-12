@@ -1036,3 +1036,128 @@ dialog select {
     transition: none !important;
   }
 }
+
+.concept-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 15px 18px;
+  margin: 10px 0;
+  background: #f8f5e9;
+  border-color: #e8dfbf;
+}
+.concept-link strong,
+.concept-link span,
+.concept-link small {
+  display: block;
+}
+.concept-link strong {
+  color: #96804b;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.concept-link span {
+  font-size: 14px;
+}
+.concept-link small {
+  color: #8d937e;
+  font-size: 12px;
+  margin-top: 7px;
+  white-space: pre-wrap;
+}
+.highlight {
+  cursor: pointer;
+}
+.discussion-panel {
+  margin: 0 0 0 auto;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(500px, 100%);
+  max-width: 100%;
+  border-radius: 20px 0 0 20px;
+  padding: 28px;
+}
+.discussion-panel::backdrop {
+  background: #142b2329;
+  backdrop-filter: none;
+}
+.discussion-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+}
+.discussion-heading h2 {
+  margin: 0;
+}
+.connection-state {
+  color: #9a8054;
+  font-size: 11px;
+  margin: 14px 0 20px;
+}
+.discussion-body h3 {
+  margin: 26px 0 12px;
+}
+.discussion-body label {
+  display: block;
+  margin-top: 22px;
+  font-size: 12px;
+  color: #758574;
+}
+.discussion-body textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #dce4dc;
+  border-radius: 10px;
+  padding: 12px;
+  font: inherit;
+  line-height: 1.8;
+  color: #263a34;
+  background: #fffefb;
+  margin-top: 8px;
+}
+.discussion-body .actions {
+  justify-content: flex-start;
+  margin-bottom: 18px;
+}
+.discussion-body .actions button {
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.discussion-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.9;
+  font-size: 16px;
+  user-select: text;
+}
+.discussion-message {
+  border: 1px solid #dfe6d8;
+  border-radius: 10px;
+  background: #f3f6ed;
+  padding: 15px;
+  margin: 14px 0;
+}
+.discussion-message small {
+  display: block;
+  color: #84957b;
+  margin-bottom: 9px;
+  font-size: 10px;
+}
+.preview-phone .discussion-panel {
+  margin: auto auto 0;
+  width: min(404px, 100%);
+  height: 78dvh;
+  border-radius: 22px 22px 0 0;
+  padding: 24px;
+}
+@media (max-width: 760px) {
+  .discussion-panel {
+    margin: auto auto 0;
+    width: 100%;
+    height: 78dvh;
+    border-radius: 22px 22px 0 0;
+    padding: 24px;
+  }
+}

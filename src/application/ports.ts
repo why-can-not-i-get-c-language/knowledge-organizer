@@ -1,4 +1,5 @@
 import type { Attempt, Bank, Annotation, Anchor, Conversation, Message } from '../domain/contracts.ts';
+import type { ConceptSummary, DiscussionQuote } from './concept-summary.ts';
 export type { Conversation } from '../domain/contracts.ts';
 
 /** 持久化适配器须以事务原子保存；expectedRevision 实现并发冲突检测。 */
@@ -40,6 +41,8 @@ export interface QuestionContext {
   selectedOptionIds: string[]; understood: boolean | null;
   // 答题阶段不能填入答案解析；点击前应展示实际发送内容。
   correctAnswer?: string[]; explanation?: string; anchor?: Anchor;
+  // 讨论原文的选区；发送前须核对sourceId/revision属于当前会话，不能只接受客户端quote文字。
+  discussionQuote?: DiscussionQuote;
 }
 export type AIEvent =
   | { type: 'text'; delta: string }
@@ -49,6 +52,11 @@ export type AIEvent =
 export interface AIProvider {
   stream(request: { model: string; context: QuestionContext; history: Pick<Message, 'role' | 'content'>[];
     question: string; maxOutputTokens: number }, signal: AbortSignal): AsyncIterable<AIEvent>;
+}
+/** AI只返回概括候选；用户确认后以updateConceptSummary更新，不能覆盖更新中的手写概括。 */
+export interface ConceptSummaryProvider {
+  summarize(request: { context: QuestionContext; history: Pick<Message, 'role' | 'content'>[];
+    currentSummary: ConceptSummary | null; maxOutputTokens: number }, signal: AbortSignal): Promise<string>;
 }
 export interface BackupPort {
   exportLocalData(): Promise<string>;
