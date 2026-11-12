@@ -100,7 +100,7 @@ try {
     $apk = Join-Path $releaseDir "knowledge-organizer-$version-arm64.apk"
     & (Join-Path $buildTools 'zipalign.exe') -P 16 -f 4 $unsigned $aligned
     Assert-Exit 'APK alignment'
-    & (Join-Path $buildTools 'apksigner.bat') sign --ks $keyFile --ks-key-alias knowledge-organizer --ks-pass env:KO_APK_SIGN_PASSWORD --key-pass env:KO_APK_SIGN_PASSWORD --out $apk $aligned
+    & (Join-Path $buildTools 'apksigner.bat') sign --v4-signing-enabled false --ks $keyFile --ks-key-alias knowledge-organizer --ks-pass env:KO_APK_SIGN_PASSWORD --key-pass env:KO_APK_SIGN_PASSWORD --out $apk $aligned
     Assert-Exit 'APK signing'
     & (Join-Path $buildTools 'apksigner.bat') verify --verbose $apk
     Assert-Exit 'APK signature verification'
