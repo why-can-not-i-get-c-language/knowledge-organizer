@@ -173,6 +173,12 @@ function renderQuestions() {
     if (blocked()) return;
     return run(async () => {
       await flushCurrent(); const phase = session!.value.phase, at = now();
+      const current = session!.value;
+      const missing = current.bank.questions.flatMap((question, index) => {
+        const response = current.responses.find(row => row.questionId === question.id)!;
+        return (phase === 'answering' ? !response.confirmed || !response.selectedOptionIds.length : response.understood === null) ? [index + 1] : [];
+      });
+      if (missing.length) throw new Error(`请先完成第${missing.slice(0, 20).join('、')}${missing.length > 20 ? `等${missing.length}` : ''}题${phase === 'answering' ? '的作答，多选题须确认答案' : '的逐题理解自评'}`);
       const change = (a: Attempt) => phase === 'answering' ? submitAnswers(a, at) : completeAttempt(a, at);
       change(session!.value); transitionPending = true; session!.edit(change); await session!.flush(); transitionPending = false; renderQuestions();
       say(phase === 'answering' ? '答案已锁定并保存，请逐题填写解析后的理解自评。' : '本轮已保存为只读记录。');
