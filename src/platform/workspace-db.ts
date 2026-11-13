@@ -4,6 +4,7 @@ import type { WorkspaceRepository } from "../application/ports.ts";
 import {
   parseWorkspace,
   validateWorkspaceUpdate,
+  deleteWorkspaceCard,
 } from "../domain/workspace.ts";
 
 /** 新界面使用独立工作空间，不升级或清空旧学习库；CAS与整包快照在同一事务提交。 */
@@ -86,6 +87,7 @@ export class WorkspaceDb implements WorkspaceRepository {
     write: boolean,
     next?: Workspace,
     expected?: number | null,
+    deleteCardId?: string,
   ): Promise<Workspace | null> {
     if (this.closed)
       return Promise.reject(
@@ -120,13 +122,24 @@ export class WorkspaceDb implements WorkspaceRepository {
           }
           if (
             (previous?.revision ?? null) !== expected ||
-            next!.revision !== (expected ?? 0)
+            (deleteCardId === undefined && next!.revision !== (expected ?? 0))
           )
             throw new AppError(
               "VERSION_CONFLICT",
               "其他窗口已保存新记录，本页修改未覆盖它；请先导出本页内容再重新打开",
             );
-          if (previous) validateWorkspaceUpdate(previous, next!);
+          if (deleteCardId !== undefined) {
+            if (!previous)
+              throw new AppError(
+                "VERSION_CONFLICT",
+                "题库不存在，请重新打开应用。",
+              );
+            next = deleteWorkspaceCard(
+              previous,
+              deleteCardId,
+              new Date().toISOString(),
+            );
+          } else if (previous) validateWorkspaceUpdate(previous, next!);
           result = parseWorkspace({
             ...next!,
             revision: previous ? previous.revision + 1 : 0,
@@ -147,6 +160,14 @@ export class WorkspaceDb implements WorkspaceRepository {
       true,
       parseWorkspace(next),
       expectedRevision,
+    ) as Promise<Workspace>;
+  }
+  deleteCard(cardId: string, expectedRevision: number): Promise<Workspace> {
+    return this.transaction(
+      true,
+      undefined,
+      expectedRevision,
+      cardId,
     ) as Promise<Workspace>;
   }
 }

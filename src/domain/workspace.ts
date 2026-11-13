@@ -514,6 +514,37 @@ export function validateWorkspaceUpdate(
   }
 }
 
+/** 只有显式删除命令使用此函数；普通保存仍禁止题集/历史消失。 */
+export function deleteWorkspaceCard(
+  previous: Workspace,
+  cardId: string,
+  now: string,
+): Workspace {
+  const card = previous.cards.find((c) => c.id === cardId);
+  if (!card)
+    throw new AppError(
+      "VERSION_CONFLICT",
+      "这套题已不在当前题库，请重新打开列表。",
+    );
+  const next = structuredClone(previous);
+  const rounds = new Set(
+    [...card.history, ...(card.round ? [card.round] : [])].map((r) => r.id),
+  );
+  next.cards = next.cards.filter((c) => c.id !== cardId);
+  next.legacyAnnotations = next.legacyAnnotations.filter(
+    (m) => !rounds.has(m.attemptId),
+  );
+  next.legacyConversations = next.legacyConversations.filter(
+    (c) => !rounds.has(c.attemptId),
+  );
+  if (next.location.cardId === cardId)
+    next.location = { screen: "library", cardId: null, group: card.group };
+  next.updatedAt = new Date(
+    Math.max(Date.parse(now), Date.parse(previous.updatedAt)),
+  ).toISOString();
+  return parseWorkspace(next);
+}
+
 export function mergeWorkspaceBackup(
   current: Workspace,
   imported: Workspace,

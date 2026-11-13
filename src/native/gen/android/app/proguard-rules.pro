@@ -25,3 +25,4 @@
 -keep class app.knowledgeorganizer.learning.DeepSeekConfigArgs { *; }
 -keep class app.knowledgeorganizer.learning.DeepSeekStreamArgs { *; }
 -keep class app.knowledgeorganizer.learning.DeepSeekCancelArgs { *; }
+-keep class app.knowledgeorganizer.learning.AppShellPlugin { *; }

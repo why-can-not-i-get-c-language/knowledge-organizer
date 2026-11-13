@@ -10,6 +10,7 @@ export interface QuizScanner {
 export interface WorkspaceRepository {
   load(): Promise<Workspace | null>;
   save(next: Workspace, expectedRevision: number | null): Promise<Workspace>;
+  deleteCard(cardId: string, expectedRevision: number): Promise<Workspace>;
   close(): void;
 }
 export type { Conversation } from '../domain/contracts.ts';

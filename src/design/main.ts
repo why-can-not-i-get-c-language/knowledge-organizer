@@ -230,6 +230,14 @@ studio.append(
   ),
 );
 if (nativeHost) studio.append(btn("退出", () => exitDialog(), "text-button"));
+const deleteCurrent = btn(
+  "删除当前题库",
+  () => {
+    if (current) void deleteCardDialog(current.id);
+  },
+  "text-button",
+);
+studio.append(deleteCurrent);
 studio.append(
   btn(
     "DeepSeek 设置",
@@ -245,6 +253,7 @@ const actionButtons = [
 ];
 actionParking.append(...actionButtons);
 function openSettings() {
+  deleteCurrent.hidden = !current;
   const dialog = el("dialog");
   dialog.append(
     el("h2", "更多"),
@@ -431,7 +440,7 @@ async function goBack() {
     ...document.querySelectorAll<HTMLDialogElement>("dialog[open]"),
   ].at(-1);
   if (dialog) {
-    dialog.close();
+    if (dialog.dataset.busy !== "true") dialog.close();
     return;
   }
   if (drawer) {
@@ -876,7 +885,19 @@ function library() {
         "text-button",
       );
       const move = btn("归组", () => moveDialog(card), "text-button");
-      row.append(symbol, body, move, action);
+      row.append(
+        symbol,
+        body,
+        move,
+        action,
+        btn(
+          "删除",
+          () => {
+            void deleteCardDialog(card.id);
+          },
+          "text-button",
+        ),
+      );
       if (card.round)
         row.append(
           btn("学习记录", () => historyDialog(card), "text-button"),
@@ -896,6 +917,76 @@ function library() {
   search.oninput = update;
   update();
 }
+async function deleteCardDialog(cardId: string) {
+  try {
+    await flush();
+    const loaded = await repository.load(),
+      card = loaded?.cards.find((c) => c.id === cardId);
+    if (!loaded || !card) throw Error("这套题已不在题库，请重新打开列表。");
+    const dialog = el("dialog"),
+      feedback = el("p", "", "muted");
+    const rounds = [...card.history, ...(card.round ? [card.round] : [])];
+    dialog.append(
+      el("h2", "删除这套题？"),
+      el("p", card.bank.title),
+      el(
+        "p",
+        `同时删除这套题的${rounds.length}轮练习记录、疑问标记及AI对话。其他题库、API Key和手机里的原始题集文件不受影响。`,
+        "muted",
+      ),
+      feedback,
+    );
+    let deleting = false;
+    const cancel = btn("取消", () => dialog.close());
+    const remove = btn(
+      "确认删除",
+      () => {
+        void (async () => {
+          if (deleting) return;
+          deleting = true;
+          dialog.dataset.busy = "true";
+          remove.disabled = cancel.disabled = true;
+          feedback.textContent = "正在删除…";
+          try {
+            const saved = await repository.deleteCard(cardId, loaded.revision);
+            saves?.discardPending();
+            hydrate(saved);
+            saves = makeSaves(saved);
+            lastSnapshot = JSON.stringify({
+              ...saved,
+              revision: 0,
+              updatedAt: "",
+            });
+            validationFailure = null;
+            drawer = false;
+            for (const opened of document.querySelectorAll<HTMLDialogElement>(
+              "dialog[open]",
+            ))
+              opened.close();
+            render();
+            say("题库已删除。");
+          } catch {
+            feedback.textContent =
+              "未能删除，原记录已保留。请关闭后重新打开应用再试。";
+          } finally {
+            deleting = false;
+            delete dialog.dataset.busy;
+            remove.disabled = cancel.disabled = false;
+          }
+        })();
+      },
+      "primary",
+    );
+    dialog.addEventListener("cancel", (event) => {
+      if (deleting) event.preventDefault();
+    });
+    dialog.append(cancel, remove);
+    showDialog(dialog);
+  } catch {
+    say("暂时无法删除，请先在“更多”中重试保存后再试。");
+  }
+}
+
 function moveDialog(card: Card) {
   const dialog = el("dialog");
   dialog.append(el("h2", "将套题移入分组"));

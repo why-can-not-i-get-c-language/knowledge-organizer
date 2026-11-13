@@ -27,13 +27,13 @@ class MainActivity : TauriActivity() {
       insets
     }
     ViewCompat.requestApplyInsets(content)
-    // 返回由应用的分组/练习状态处理，不遍历WebView访问历史。
+    // 先由页面保存及收起弹层，再回到桌面；不遍历历史或结束原生运行循环。
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         val webView = learningWebView
-        if (webView == null) { finish(); return }
+        if (webView == null) { moveTaskToBack(true); return }
         webView.evaluateJavascript("(() => { const back = window.__knowledgeOrganizerBack; if (typeof back !== 'function') return false; back(); return true; })()") { handled ->
-          if (handled == "false") finish()
+          if (handled == "false") moveTaskToBack(true)
         }
       }
     })
