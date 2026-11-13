@@ -4,6 +4,25 @@ export type { Workspace, WorkspaceCard, WorkspaceRound, WorkspaceAnswer, Workspa
 
 export const MAX_BANK_BYTES = 10 * 1024 * 1024;
 export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
+export const scannedQuizSchema = z
+  .object({
+    path: z.string().min(1).max(4096),
+    id: z.string().min(1).max(100),
+    version: z.string().min(1).max(100),
+    title: z.string().min(1).max(20000),
+    questionCount: z.number().int().min(1).max(1000),
+    size: z.number().int().min(1).max(MAX_BANK_BYTES),
+  })
+  .strict();
+export const quizScanSchema = z
+  .object({
+    files: z.array(scannedQuizSchema).max(1000),
+    partial: z.boolean(),
+    cancelled: z.boolean(),
+  })
+  .strict();
+export type ScannedQuiz = z.infer<typeof scannedQuizSchema>;
+export type QuizScan = z.infer<typeof quizScanSchema>;
 const id = z.string().min(1).max(100).refine(value => value.trim().length > 0, 'ID不能全为空白');
 const text = z.string().min(1).max(20000);
 export const timestampSchema = z.iso.datetime({ offset: true }).max(40)

@@ -1,6 +1,12 @@
 import type { Attempt, Bank, Annotation, Anchor, Conversation, Message } from '../domain/contracts.ts';
 import type { ConceptSummary, DiscussionQuote } from './concept-summary.ts';
 import type { Workspace } from '../domain/contracts.ts';
+import type { QuizScan } from "../domain/contracts.ts";
+export interface QuizScanner {
+  scan(): Promise<QuizScan>;
+  read(path: string): Promise<string>;
+  cancel(): Promise<void>;
+}
 export interface WorkspaceRepository {
   load(): Promise<Workspace | null>;
   save(next: Workspace, expectedRevision: number | null): Promise<Workspace>;

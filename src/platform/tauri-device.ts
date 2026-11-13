@@ -4,7 +4,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppError, MAX_BACKUP_BYTES } from '../domain/contracts.ts';
 import type { DeviceServices } from '../application/ports.ts';
 
-/** 原生宿主通过系统文件选择器授权单个文件，不请求整个存储目录权限。 */
+/** 手动导入和导出使用系统文件选择器；自动扫描由独立适配器请求公共存储访问。 */
 export class TauriDeviceServices implements DeviceServices {
   async readImportFile(): Promise<string | null> {
     try {

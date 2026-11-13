@@ -38,6 +38,7 @@ import type { SourceField } from "../ui/source-field.ts";
 import { isTauri } from "@tauri-apps/api/core";
 import { invoke } from "@tauri-apps/api/core";
 import { TauriDeviceServices } from "../platform/tauri-device.ts";
+import { TauriQuizScanner } from "../platform/tauri-scanner.ts";
 import {
   updateConceptSummary,
   quoteDiscussionText,
@@ -102,7 +103,15 @@ const notice = el("div", "", "notice");
 notice.setAttribute("role", "status");
 function say(text: string) {
   notice.textContent = text;
+  notice.hidden = !text;
+  clearTimeout(noticeTimer);
+  if (text)
+    noticeTimer = setTimeout(() => {
+      notice.hidden = true;
+    }, 4500);
 }
+let noticeTimer: ReturnType<typeof setTimeout>;
+notice.hidden = true;
 const studio = el("header", "", "studio");
 const brand = el("div");
 brand.append(
@@ -114,16 +123,19 @@ const desktop = btn("桌面", () => setPhone(false)),
   mobile = btn("手机", () => setPhone(true));
 sizes.append(desktop, mobile);
 studio.append(brand, sizes);
-if (nativeHost) sizes.hidden = true;
+sizes.hidden = true;
+brand.querySelector("span")!.hidden = true;
 const saveStatus = el("span", "正在读取本机记录…", "save-status");
 saveStatus.setAttribute("role", "status");
 studio.append(saveStatus);
+saveStatus.hidden = true;
 const offlineStatus = el(
   "span",
   nativeHost ? "离线安装版" : "本机学习",
   "save-status",
 );
 studio.append(offlineStatus);
+offlineStatus.hidden = true;
 const retry = btn(
   "重试保存",
   () => {
@@ -213,6 +225,26 @@ studio.append(
   ),
 );
 if (nativeHost) studio.append(btn("退出", () => exitDialog(), "text-button"));
+const actionParking = document.createDocumentFragment();
+const actionButtons = [
+  ...studio.querySelectorAll<HTMLButtonElement>(":scope > button"),
+];
+actionParking.append(...actionButtons);
+function openSettings() {
+  const dialog = el("dialog");
+  dialog.append(
+    el("h2", "更多"),
+    ...actionButtons,
+    btn("关闭", () => dialog.close()),
+  );
+  dialog.addEventListener(
+    "close",
+    () => actionParking.append(...actionButtons),
+    { once: true },
+  );
+  showDialog(dialog);
+}
+studio.append(btn("更多", openSettings, "text-button"));
 const shell = el("div", "", "shell");
 const sidebar = el("aside", "", "sidebar");
 const backdrop = btn(
@@ -253,7 +285,7 @@ function persist() {
     validationFailure =
       error instanceof Error ? error : new Error("保存前校验失败");
     saveStatus.textContent = "修改尚未保存";
-    say(validationFailure.message);
+    say("暂时未能保存，请在“更多”中重试。");
   }
 }
 async function flush() {
@@ -311,29 +343,9 @@ function exitDialog() {
     void invoke("exit_app");
     return;
   }
-  const dialog = el("dialog");
-  dialog.append(
-    el("h2", "退出应用？"),
-    el("p", "退出前会等待保存，下次打开回到当前题目或列表。"),
-  );
-  const actions = el("div", "", "actions");
-  actions.append(
-    btn("继续学习", () => dialog.close()),
-    btn(
-      "保存并退出",
-      () => {
-        void flush()
-          .then(() => invoke("exit_app"))
-          .catch((error) => {
-            say(error.message);
-            dialog.close();
-          });
-      },
-      "primary",
-    ),
-  );
-  dialog.append(actions);
-  showDialog(dialog);
+  void flush()
+    .then(() => invoke("exit_app"))
+    .catch(() => say("暂时未能保存，请在“更多”中重试后退出。"));
 }
 function makeSaves(loaded: Workspace) {
   return new SaveCoordinator(
@@ -347,6 +359,7 @@ function makeSaves(loaded: Workspace) {
           : "已自动保存到本机";
       saveStatus.dataset.state = status.state;
       retry.hidden = reloadSaved.hidden = !status.error;
+      if (status.error) say("暂时未能保存，请在“更多”中重试。");
     },
   );
 }
@@ -653,17 +666,37 @@ function top(title: string, subtitle: string) {
   main.append(header);
   return header;
 }
+let renderedPage = "",
+  renderSerial = 0;
 function render() {
+  const serial = ++renderSerial;
+  const key = `${screen}/${current?.id ?? ""}/${current?.round?.id ?? ""}/${current?.round?.index ?? ""}`;
+  const samePage = renderedPage === key,
+    y = window.scrollY;
+  if (samePage) main.style.minHeight = `${main.offsetHeight}px`;
+  renderedPage = key;
   clearTimeout(animationTimer);
   animating = false;
   renderSidebar();
   main.replaceChildren();
   fields = [];
   layout();
+  studio.hidden = screen === "quiz";
   if (screen === "library") library();
   else if (screen === "setup") setup();
   else if (screen === "results") results();
   else quiz();
+  if (samePage) {
+    window.scrollTo(0, y);
+    requestAnimationFrame(() => {
+      if (serial !== renderSerial) return;
+      main.style.minHeight = "";
+      window.scrollTo(0, y);
+    });
+  } else {
+    main.style.minHeight = "";
+    window.scrollTo(0, 0);
+  }
   persist();
 }
 function library() {
@@ -672,13 +705,6 @@ function library() {
     "学习空间" + (chosenGroup ? " / " + trail(chosenGroup).join(" / ") : ""),
   );
   header.append(btn("＋ 导入套题", pickFile, "primary"));
-  const intro = el("section", "", "library-intro");
-  intro.append(
-    el("span", "LEARNING SPACE", "eyebrow"),
-    el("h2", "每一套题，都是一次新的理解。"),
-    el("p", "按自己的节奏整理、练习，把没想明白的地方留在原处。", "muted"),
-  );
-  main.append(intro);
   const tools = el("div", "", "library-tools"),
     search = el("input");
   search.type = "search";
@@ -814,31 +840,19 @@ function pickFile() {
       const added = addBank(importBank(text));
       render();
       await flush();
-      say(
-        added
-          ? "题集已导入并保存到本机。"
-          : "已有相同题集，可以继续原来的练习。",
-      );
+      if (!added) say("已有这套题，可以继续练习。");
     })
-    .catch((error) =>
-      say(
-        error instanceof Error ? error.message : "无法读取文件，请重新选择。",
-      ),
-    );
+    .catch(() => say("这份文件暂时不能导入，请选择题集文件。"));
 }
 function scanDialog() {
   if (nativeHost) {
-    say("安卓扫描尚未接入。请用“导入套题”从系统文件选择器打开JSON题集。");
+    scanPhone();
     return;
   }
   const dialog = el("dialog");
   dialog.append(
     el("h2", "发现设备中的题集"),
-    el(
-      "p",
-      "支持：JSON 题集（v1，最大10MiB）。此处演示扫描所选文件夹；安卓全盘扫描尚未实现。",
-      "muted",
-    ),
+    el("p", "浏览器需要先选择文件夹，再查找其中的题集。", "muted"),
   );
   const list = el("div", "", "scan-list"),
     status = el("p", "选择一个文件夹后，将检查其中的 JSON 文件。", "muted");
@@ -855,8 +869,6 @@ function scanDialog() {
       const files = [...(input.files ?? [])].filter((f) =>
         /\.json$/i.test(f.name),
       );
-      let rejected = 0,
-        duplicated = 0;
       const seen = new Set(
         cards.map((c) => JSON.stringify([c.bank.id, c.bank.version])),
       );
@@ -868,7 +880,6 @@ function scanDialog() {
           const bank = importBank(await file.text());
           const key = JSON.stringify([bank.id, bank.version]);
           if (seen.has(key)) {
-            duplicated++;
             continue;
           }
           seen.add(key);
@@ -885,10 +896,10 @@ function scanDialog() {
           list.append(label);
           found.push({ bank, checkbox });
         } catch {
-          rejected++;
+          /* 跳过不属于题集的文件。 */
         }
       }
-      status.textContent = `找到 ${found.length} 套可导入题集 · ${duplicated} 个重复 · ${rejected} 个格式不符或过大`;
+      status.textContent = found.length ? "" : "没有找到题集，请换一个文件夹。";
       choose.disabled = false;
     };
     input.click();
@@ -908,13 +919,118 @@ function scanDialog() {
         }
         dialog.close();
         render();
-        say(`已导入 ${count} 套题，正在保存到本机。`);
       },
       "primary",
     ),
   );
   dialog.append(choose, status, list, actions);
   showDialog(dialog);
+}
+function scanPhone() {
+  const scanner = new TauriQuizScanner(),
+    dialog = el("dialog");
+  dialog.append(el("h2", "查找题集"));
+  const status = el("p", "正在查找题集…", "muted"),
+    list = el("div", "", "scan-list");
+  const found: { bank: Bank; checkbox: HTMLInputElement }[] = [];
+  let active = true,
+    scanPending = true;
+  const importButton = btn(
+    "导入所选题集",
+    () => {
+      let added = 0;
+      for (const item of found)
+        if (
+          !item.checkbox.disabled &&
+          item.checkbox.checked &&
+          addBank(item.bank)
+        )
+          added++;
+      if (!added) return;
+      dialog.close();
+      render();
+    },
+    "primary",
+  );
+  importButton.disabled = true;
+  dialog.append(
+    status,
+    list,
+    importButton,
+    btn("取消", () => dialog.close()),
+  );
+  dialog.addEventListener(
+    "close",
+    () => {
+      active = false;
+      if (scanPending) void scanner.cancel().catch(() => {});
+    },
+    { once: true },
+  );
+  showDialog(dialog);
+  void (async () => {
+    try {
+      const result = await scanner.scan();
+      scanPending = false;
+      const seen = new Set<string>();
+      let bytes = 0,
+        limited = result.partial;
+      for (const file of result.files) {
+        if (!active) return;
+        const key = JSON.stringify([file.id, file.version]);
+        if (seen.has(key)) continue;
+        const existing = cards.find(
+          (c) => c.bank.id === file.id && c.bank.version === file.version,
+        );
+        let bank = existing?.bank;
+        if (!bank) {
+          if (bytes + file.size > 50 * 1024 * 1024) {
+            limited = true;
+            continue;
+          }
+          try {
+            bank = importBank(await scanner.read(file.path));
+            if (bank.id !== file.id || bank.version !== file.version) continue;
+            bytes += file.size;
+          } catch {
+            continue;
+          }
+        }
+        if (!active) return;
+        seen.add(key);
+        const label = el("label", "", "scan-item"),
+          checkbox = el("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = !existing;
+        checkbox.disabled = Boolean(existing);
+        const text = el("span");
+        text.append(
+          el("strong", bank.title),
+          el(
+            "small",
+            `${bank.questions.length}题${existing ? " · 已导入" : ""}`,
+          ),
+        );
+        label.append(checkbox, text);
+        list.append(label);
+        found.push({ bank, checkbox });
+      }
+      if (!active) return;
+      status.textContent = result.cancelled
+        ? "已停止查找。"
+        : found.length
+          ? limited
+            ? "可以先导入这些题集，再继续查找。"
+            : ""
+          : "没有找到题集。可以先将题集保存到“下载”后再扫描，或直接导入。";
+      importButton.disabled = !found.some((item) => !item.checkbox.disabled);
+    } catch {
+      scanPending = false;
+      if (active)
+        status.textContent =
+          "未能查找题集。请允许文件访问后重试，也可以直接导入。";
+    }
+  })();
 }
 function setup() {
   const card = current!;
@@ -1061,7 +1177,6 @@ function addMark(anchor: Anchor, answer: Answer) {
       a.end === anchor.end,
   )!;
   openDiscussion(answer, saved);
-  say("可填写概括或准备提问。当前未连接DeepSeek，不会发送请求。");
 }
 function equal(a: string[], b: string[]) {
   return a.length === b.length && a.every((id) => b.includes(id));
@@ -1186,6 +1301,18 @@ function questionPage(index: number) {
   page.append(meta);
   page.append(textField(question, question.prompt, "prompt", answer));
   const options = el("div", "", "options");
+  function syncOptions() {
+    for (const [at, row] of [...options.children].entries()) {
+      const selected = answer.selected.includes(question.options[at]!.id);
+      row.classList.toggle("checked", selected);
+      row.setAttribute("aria-checked", String(selected));
+      row
+        .querySelector("button")!
+        .setAttribute("aria-pressed", String(selected));
+    }
+    const confirm = page.querySelector<HTMLButtonElement>(".confirm");
+    if (confirm) confirm.disabled = !answer.selected.length;
+  }
   options.setAttribute(
     "role",
     question.type === "multiple" ? "group" : "radiogroup",
@@ -1213,7 +1340,7 @@ function questionPage(index: number) {
               ? answer.selected.filter((id) => id !== option.id)
               : [...answer.selected, option.id]
             : [option.id];
-        render();
+        syncOptions();
       },
       "option-button",
     );
@@ -1333,7 +1460,11 @@ function questionPage(index: number) {
     ] as const) {
       const button = btn(label, () => {
         answer.understood = value;
-        render();
+        for (const candidate of self.querySelectorAll("button"))
+          candidate.setAttribute(
+            "aria-pressed",
+            String(candidate.textContent === label),
+          );
       });
       button.disabled = Boolean(round.completedAt);
       button.setAttribute("aria-pressed", String(answer.understood === value));
@@ -1539,6 +1670,7 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
       );
       const summarize = btn("让AI概括", () => {});
       summarize.disabled = true;
+      summarize.hidden = true;
       summarize.title = "真实DeepSeek接通后启用";
       actions.append(
         summarize,
@@ -1641,6 +1773,7 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
       );
       const send = btn("发送给DeepSeek", () => {});
       send.disabled = true;
+      send.hidden = true;
       send.title = "尚未接通API";
       actions.append(send);
       body.append(actions);
@@ -1654,10 +1787,10 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
 function quiz() {
   const card = current!,
     round = card.round!;
-  const header = top(
-    card.bank.title,
-    `${round.mode === "immediate" ? "逐题反馈" : "整套提交"} · ${round.completedAt ? "已完成记录" : "自动保存进度"}`,
-  );
+  const header = top(card.bank.title, "");
+  const more = btn("⋯", openSettings, "text-button");
+  more.setAttribute("aria-label", "更多操作");
+  header.append(more);
   header.append(
     btn(
       "返回题库",
@@ -1697,6 +1830,7 @@ function quiz() {
   track.append(left, active, right);
   viewport.append(track);
   main.append(viewport);
+  viewport.style.height = `${active.offsetHeight}px`;
   const resize = new ResizeObserver(() => {
     if (!viewport.isConnected) {
       resize.disconnect();
@@ -1949,11 +2083,8 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden")
     void flush().catch((error) => say(error.message));
 });
-window.addEventListener("beforeunload", (event) => {
-  if (validationFailure || saves?.status.pending) {
-    event.preventDefault();
-    event.returnValue = "";
-  }
+window.addEventListener("pagehide", () => {
+  void flush().catch(() => {});
 });
 document.addEventListener("selectionchange", () => {
   if (window.getSelection()?.toString()) answerGestureUntil = Date.now() + 450;
@@ -1990,11 +2121,6 @@ async function start() {
     saveStatus.textContent = "已读取本机记录";
     ready = true;
     render();
-    say(
-      current?.round && screen === "quiz"
-        ? `已恢复第${current.round.index + 1}题，可以继续。`
-        : "答题、分组和疑问会自动保存到本机。",
-    );
     if (!nativeHost) {
       if ("serviceWorker" in navigator && import.meta.env.PROD)
         void navigator.serviceWorker
@@ -2021,11 +2147,7 @@ async function start() {
   } catch (error) {
     saveStatus.textContent = "本机记录无法打开，原数据已保留";
     main.replaceChildren(
-      el(
-        "p",
-        error instanceof Error ? error.message : "请重新打开应用",
-        "empty",
-      ),
+      el("p", "学习记录暂时无法打开，请重新打开应用。", "empty"),
       btn("重新打开", () => location.reload()),
     );
   }
