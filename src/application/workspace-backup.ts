@@ -15,7 +15,7 @@ import { parseBackup } from "../domain/records.ts";
 const schema = z
   .object({
     format: z.literal("knowledge-organizer.workspace-backup"),
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     exportedAt: timestampSchema,
     workspace: workspaceSchema,
   })
@@ -31,7 +31,7 @@ export function exportWorkspaceBackup(
   const text = JSON.stringify(
     schema.parse({
       format: "knowledge-organizer.workspace-backup",
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: now,
       workspace: parseWorkspace(workspace),
     }),

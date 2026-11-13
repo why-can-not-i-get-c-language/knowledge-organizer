@@ -110,9 +110,14 @@ export function anchorForOffsets(bank: Bank, field: SourceField, start: number, 
 }
 
 export function anchorForRange(bank: Bank, field: SourceField, range: Range): Anchor {
+  const offsets = sourceRange(field, range);
+  return anchorForOffsets(bank, field, offsets.start, offsets.end);
+}
+
+/** 题目和AI回答复用DOM到原文的映射；公式仍按整式定位。 */
+export function sourceRange(field: SourceField, range: Range): { start: number; end: number } {
   if (range.collapsed || !field.element.contains(range.startContainer) || !field.element.contains(range.endContainer))
     throw new Error('请在同一题干、同一选项或同一解析内选择文字');
-  return anchorForOffsets(bank, field,
-    sourceOffset(field, range.startContainer, range.startOffset, false),
-    sourceOffset(field, range.endContainer, range.endOffset, true));
+  return { start: sourceOffset(field, range.startContainer, range.startOffset, false),
+    end: sourceOffset(field, range.endContainer, range.endOffset, true) };
 }

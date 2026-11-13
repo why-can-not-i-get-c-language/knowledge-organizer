@@ -33,12 +33,16 @@ import {
   paintField,
   anchorForRange,
   anchorForOffsets,
+  sourceRange,
 } from "../ui/source-field.ts";
 import type { SourceField } from "../ui/source-field.ts";
 import { isTauri } from "@tauri-apps/api/core";
 import { invoke } from "@tauri-apps/api/core";
 import { TauriDeviceServices } from "../platform/tauri-device.ts";
 import { TauriQuizScanner } from "../platform/tauri-scanner.ts";
+import { TauriDeepSeek } from "../platform/tauri-deepseek.ts";
+import { aiMessages, DEFAULT_AI_MODEL } from "../application/deepseek.ts";
+import type { QuestionContext } from "../application/ports.ts";
 import {
   updateConceptSummary,
   quoteDiscussionText,
@@ -54,6 +58,7 @@ const cards: Card[] = [];
 const nativeHost = isTauri();
 const nativeDevice = nativeHost ? new TauriDeviceServices() : null;
 const device = nativeDevice ?? new BrowserDeviceServices();
+const ai = nativeHost ? new TauriDeepSeek() : null;
 let workspace: Workspace;
 let repository: WorkspaceDb;
 let saves: SaveCoordinator<Workspace> | undefined;
@@ -225,6 +230,15 @@ studio.append(
   ),
 );
 if (nativeHost) studio.append(btn("退出", () => exitDialog(), "text-button"));
+studio.append(
+  btn(
+    "DeepSeek 设置",
+    () => {
+      void aiSettings();
+    },
+    "text-button",
+  ),
+);
 const actionParking = document.createDocumentFragment();
 const actionButtons = [
   ...studio.querySelectorAll<HTMLButtonElement>(":scope > button"),
@@ -243,6 +257,120 @@ function openSettings() {
     { once: true },
   );
   showDialog(dialog);
+}
+async function aiSettings() {
+  if (!ai) {
+    say("请在安卓安装版中设置DeepSeek。");
+    return;
+  }
+  const dialog = el("dialog");
+  const status = el("p", "正在读取设置…", "muted");
+  const key = el("input");
+  key.type = "password";
+  key.autocomplete = "off";
+  key.placeholder = "粘贴你自己的 API Key";
+  const model = el("input");
+  model.value = DEFAULT_AI_MODEL;
+  model.maxLength = 100;
+  const tokens = el("input");
+  tokens.type = "number";
+  tokens.min = "256";
+  tokens.max = "16384";
+  tokens.value = "2048";
+  function field(name: string, input: HTMLInputElement) {
+    const label = el("label", name);
+    label.append(input);
+    dialog.append(label);
+  }
+  dialog.append(el("h2", "DeepSeek 设置"), status);
+  field("API Key", key);
+  field("模型", model);
+  field("回答长度上限", tokens);
+  dialog.append(
+    el(
+      "p",
+      "密钥只保存在本机安全存储，不进入学习备份。发送会使用你自己的DeepSeek API余额。",
+      "muted",
+    ),
+  );
+  const feedback = el("p", "", "muted");
+  dialog.append(feedback);
+  let working = false;
+  const save = btn(
+    "保存设置",
+    () => {
+      void (async () => {
+        if (working) return;
+        working = true;
+        try {
+          await ai.configure(
+            model.value.trim(),
+            Number(tokens.value),
+            key.value.trim() || undefined,
+          );
+          key.value = "";
+          status.textContent = "已设置，可开始提问。";
+          feedback.textContent = "";
+        } catch (e) {
+          feedback.textContent =
+            e instanceof Error ? e.message : "设置未能保存，请重试。";
+        } finally {
+          working = false;
+        }
+      })();
+    },
+    "primary",
+  );
+  dialog.append(
+    save,
+    btn("检查连接", () => {
+      void (async () => {
+        if (working) return;
+        working = true;
+        feedback.textContent = "正在连接…";
+        try {
+          await ai.checkConnection();
+          feedback.textContent = "连接正常。";
+        } catch (e) {
+          feedback.textContent =
+            e instanceof Error ? e.message : "连接失败，请检查网络。";
+        } finally {
+          working = false;
+        }
+      })();
+    }),
+    btn("删除密钥", () => {
+      void ai
+        .removeDeepSeekKey()
+        .then(() => {
+          key.value = "";
+          status.textContent = "尚未设置密钥。";
+        })
+        .catch((e) => {
+          feedback.textContent = e.message;
+        });
+    }),
+    btn("关闭", () => dialog.close()),
+  );
+  dialog.addEventListener(
+    "close",
+    () => {
+      key.value = "";
+    },
+    { once: true },
+  );
+  showDialog(dialog);
+  try {
+    const settings = await ai.settings();
+    if (!dialog.open) return;
+    model.value = settings.model;
+    tokens.value = String(settings.maxOutputTokens);
+    status.textContent = settings.configured
+      ? "已保存密钥。留空可保留原密钥。"
+      : "尚未设置密钥。";
+  } catch (e) {
+    status.textContent = e instanceof Error ? e.message : "设置无法读取。";
+  }
 }
 studio.append(btn("更多", openSettings, "text-button"));
 const shell = el("div", "", "shell");
@@ -318,15 +446,11 @@ async function goBack() {
   navigating = true;
   try {
     await flush();
-    if (screen !== "library") {
-      chosenGroup = current?.group ?? null;
-      screen = "library";
-      render();
-    } else if (chosenGroup) {
-      chosenGroup = groups.find((g) => g.id === chosenGroup)?.parent ?? null;
-      render();
-    } else if (nativeHost) exitDialog();
-    else say("已经回到全部套题，进度已保存在本机。");
+    if (nativeHost) await invoke("exit_app");
+    else {
+      drawer = true;
+      layout();
+    }
   } catch (error) {
     say(error instanceof Error ? error.message : "尚未保存，请先重试保存");
   } finally {
@@ -479,6 +603,8 @@ function layout() {
   root.classList.toggle("preview-phone", phone);
   shell.classList.toggle("phone", phone);
   shell.classList.toggle("drawer", drawer);
+  document.body.style.overflow = drawer ? "hidden" : "";
+  main.querySelector(".menu")?.setAttribute("aria-expanded", String(drawer));
   desktop.setAttribute("aria-pressed", String(!phone));
   mobile.setAttribute("aria-pressed", String(phone));
 }
@@ -626,6 +752,8 @@ function renderSidebar() {
     }
   }
   groups.filter((g) => g.parent === null).forEach((g) => node(g, 0));
+  for (const card of cards.filter((c) => c.group === null))
+    sidebar.append(btn(card.bank.title, () => openCard(card), "conversation"));
   sidebar.append(
     el("p", "套题像会话一样保留在分组里。\n同一套题可反复练习。", "side-note"),
   );
@@ -651,17 +779,6 @@ function top(title: string, subtitle: string) {
   const titles = el("div");
   titles.append(el("p", subtitle, "breadcrumb"), el("h1", title));
   left.append(menu, titles);
-  if (screen !== "library" || chosenGroup !== null) {
-    const back = btn(
-      "‹",
-      () => {
-        void goBack();
-      },
-      "icon-button",
-    );
-    back.setAttribute("aria-label", "返回上一级");
-    left.prepend(back);
-  }
   header.append(left);
   main.append(header);
   return header;
@@ -1533,25 +1650,25 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
       summaryDraft: "",
       drafts: [],
       draft: "",
+      messages: [],
     };
     answer.discussions[markKey(anchor)] = discussion;
   }
   const item = discussion;
+  const owner = current!,
+    question = owner.bank.questions.find((q) => q.id === anchor.questionId)!;
+  let controller: AbortController | undefined,
+    pending = false,
+    preparing = false,
+    open = true;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const dialog = el("dialog", "", "discussion-panel");
   const heading = el("div", "", "discussion-heading");
   heading.append(
     el("h2", "这个概念"),
     btn("关闭", () => dialog.close(), "text-button"),
   );
-  dialog.append(
-    heading,
-    el(
-      "p",
-      "概括与提问草稿自动保存在本机 · DeepSeek尚未连接",
-      "connection-state",
-    ),
-    el("blockquote", anchor.quote, "doubt"),
-  );
+  dialog.append(heading, el("blockquote", anchor.quote, "doubt"));
   dialog.append(
     btn(
       answer.resolvedMarks.includes(markKey(anchor))
@@ -1575,44 +1692,236 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
   dialog.append(feedback);
   let view: "summary" | "chat" = "summary";
   let selection: DiscussionQuote | undefined;
-  function capture(
-    element: HTMLElement,
-    sourceId: string,
-    revision: number,
-    source: string,
-  ) {
+  function capture(field: SourceField, sourceId: string, revision: number) {
     const selected = window.getSelection();
     if (!selected?.rangeCount || !selected.toString()) return;
     const range = selected.getRangeAt(0);
     if (
-      !element.contains(range.startContainer) ||
-      !element.contains(range.endContainer)
+      !field.element.contains(range.startContainer) ||
+      !field.element.contains(range.endContainer)
     )
       return;
-    const before = document.createRange();
-    before.selectNodeContents(element);
-    before.setEnd(range.startContainer, range.startOffset);
-    const through = document.createRange();
-    through.selectNodeContents(element);
-    through.setEnd(range.endContainer, range.endOffset);
+    const offsets = sourceRange(field, range);
     selection = quoteDiscussionText(
       sourceId,
       revision,
-      source,
-      before.toString().length,
-      through.toString().length,
+      field.source,
+      offsets.start,
+      offsets.end,
     );
     feedback.textContent = `已选中“${selection.quote}”，可点“就选文继续问”。`;
   }
   function selectable(text: string, id: string, revision: number) {
-    const element = el("div", text, "discussion-text");
-    element.addEventListener("pointerup", () =>
-      capture(element, id, revision, text),
-    );
-    element.addEventListener("keyup", () =>
-      capture(element, id, revision, text),
-    );
+    const field = createField(text, {
+      questionId: question.id,
+      field: "prompt",
+    });
+    const element = field.element;
+    element.classList.add("discussion-text");
+    paintField(field, [], (start, end) => {
+      selection = quoteDiscussionText(id, revision, text, start, end);
+      feedback.textContent = `已选中“${selection.quote}”，可继续提问。`;
+    });
+    element.addEventListener("pointerup", () => capture(field, id, revision));
+    element.addEventListener("keyup", () => capture(field, id, revision));
     return element;
+  }
+  function history() {
+    const result: { role: "user" | "assistant"; content: string }[] = [];
+    for (let i = 0; i < item.messages.length - 1; i++) {
+      const a = item.messages[i]!,
+        b = item.messages[i + 1]!;
+      if (
+        a.role === "user" &&
+        a.status === "complete" &&
+        b.role === "assistant" &&
+        b.status === "complete"
+      ) {
+        result.push(
+          {
+            role: "user",
+            content:
+              (a.quote ? `针对选文：${a.quote.quote}\n` : "") + a.content,
+          },
+          { role: "assistant", content: b.content },
+        );
+        i++;
+      }
+    }
+    return result;
+  }
+  async function prepareSend(summaryRequest = false) {
+    if (pending || preparing) return;
+    if (!ai) {
+      say("请在安卓安装版中使用DeepSeek。");
+      return;
+    }
+    preparing = true;
+    try {
+      const settings = await ai.settings();
+      if (!open) return;
+      if (!settings.configured) {
+        await aiSettings();
+        return;
+      }
+      const text = summaryRequest
+        ? "请将本处标记概念与已有讨论概括为一段便于回顾的中文，控制在300字内，保留必要公式。"
+        : item.draft.trim();
+      if (!text) {
+        feedback.textContent = "请先输入问题。";
+        return;
+      }
+      const quoted = summaryRequest ? undefined : selection;
+      if (quoted) {
+        const source =
+          quoted.sourceId === item.id + ":summary"
+            ? item.summary?.text
+            : (item.messages.find((m) => m.id === quoted.sourceId)?.content ??
+              item.drafts.find((d) => d.id === quoted.sourceId)?.text);
+        const revision =
+          quoted.sourceId === item.id + ":summary" ? item.summary?.revision : 0;
+        if (
+          !source ||
+          revision !== quoted.revision ||
+          source.slice(quoted.start, quoted.end) !== quoted.quote
+        )
+          throw Error("引用内容已变化，请重新选择。");
+      }
+      const context: QuestionContext = {
+        bankId: owner.bank.id,
+        bankVersion: owner.bank.version,
+        questionId: question.id,
+        prompt: question.prompt,
+        options: question.options,
+        selectedOptionIds: [...answer.selected],
+        understood: answer.understood,
+        anchor,
+        ...(answer.locked
+          ? {
+              correctAnswer: question.correctAnswer,
+              explanation: question.explanation,
+            }
+          : {}),
+        ...(quoted ? { discussionQuote: quoted } : {}),
+      };
+      const request = {
+        model: settings.model,
+        maxOutputTokens: summaryRequest
+          ? Math.min(settings.maxOutputTokens, 2048)
+          : settings.maxOutputTokens,
+        context,
+        history: history(),
+        question:
+          text +
+          (summaryRequest && item.summary
+            ? "\n已有概括：" + item.summary.text
+            : ""),
+      };
+      const preview = el("dialog"),
+        output = el("textarea");
+      output.readOnly = true;
+      output.rows = 12;
+      output.value = JSON.stringify(aiMessages(request), null, 2);
+      output.setAttribute("aria-label", "本次发送内容");
+      preview.append(
+        el("h2", "本次发送给 DeepSeek"),
+        el(
+          "p",
+          `仅含本题、当前疑问及本处已完成讨论 · ${request.model} · 输出上限${request.maxOutputTokens} tokens`,
+          "muted",
+        ),
+        output,
+        btn("取消", () => preview.close()),
+        btn(
+          "发送",
+          () => {
+            preview.close();
+            void send(request, text, quoted, summaryRequest);
+          },
+          "primary",
+        ),
+      );
+      showDialog(preview);
+    } catch (e) {
+      feedback.textContent =
+        e instanceof Error ? e.message : "暂时无法准备提问。";
+    } finally {
+      preparing = false;
+    }
+  }
+  async function send(
+    request: Parameters<TauriDeepSeek["stream"]>[0],
+    text: string,
+    quote: DiscussionQuote | undefined,
+    summaryRequest: boolean,
+  ) {
+    if (!ai || pending || !open) return;
+    pending = true;
+    controller = new AbortController();
+    const user: (typeof item.messages)[number] = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+      status: "complete",
+      ...(quote ? { quote } : {}),
+    };
+    const reply: (typeof item.messages)[number] = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "",
+      status: "pending",
+      model: request.model,
+      purpose: summaryRequest ? "summary" : "chat",
+    };
+    item.messages.push(user, reply);
+    if (!summaryRequest) item.draft = "";
+    selection = undefined;
+    view = "chat";
+    draw();
+    feedback.textContent = "正在回答…";
+    const live = body.querySelector<HTMLElement>(
+      `[data-message-id="${reply.id}"] .discussion-text`,
+    );
+    try {
+      await flush();
+      for await (const event of ai.stream(request, controller.signal)) {
+        if (event.type === "text") {
+          if (reply.content.length + event.delta.length > 200000)
+            throw Error("回答较长，已保留收到的部分，请继续追问。");
+          reply.content += event.delta;
+          if (open && live) live.textContent = reply.content;
+          if (!saveTimer)
+            saveTimer = setTimeout(() => {
+              saveTimer = undefined;
+              persist();
+            }, 300);
+        } else if (event.type === "usage") {
+          reply.usage = {
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            ...(event.cacheHitTokens !== undefined
+              ? { cacheHitTokens: event.cacheHitTokens }
+              : {}),
+          };
+        } else reply.status = "complete";
+      }
+      if (reply.status !== "complete")
+        throw Error("回答中断，收到的内容已保留。");
+      feedback.textContent = summaryRequest
+        ? "概括候选已生成，可返回概括查看后采用。"
+        : "";
+    } catch (e) {
+      reply.status = reply.content ? "interrupted" : "failed";
+      feedback.textContent =
+        e instanceof Error ? e.message : "回答中断，收到的内容已保留。";
+    } finally {
+      controller.abort();
+      clearTimeout(saveTimer);
+      saveTimer = undefined;
+      pending = false;
+      persist();
+      if (open) draw();
+    }
   }
   function draw() {
     body.replaceChildren();
@@ -1668,10 +1977,29 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
           "primary",
         ),
       );
-      const summarize = btn("让AI概括", () => {});
-      summarize.disabled = true;
-      summarize.hidden = true;
-      summarize.title = "真实DeepSeek接通后启用";
+      const candidate = [...item.messages]
+        .reverse()
+        .find((m) => m.purpose === "summary" && m.status === "complete");
+      if (candidate && candidate.content !== item.summary?.text) {
+        body.append(
+          el("h3", "AI概括候选"),
+          selectable(candidate.content, candidate.id, 0),
+          btn("采用这段概括", () => {
+            item.summary = updateConceptSummary(
+              item.summary,
+              { text: candidate.content, author: "ai" },
+              expected,
+              new Date().toISOString(),
+            );
+            item.summaryDraft = candidate.content;
+            draw();
+          }),
+        );
+      }
+      const summarize = btn("让AI概括", () => {
+        void prepareSend(true);
+      });
+      summarize.disabled = pending;
       actions.append(
         summarize,
         btn("继续问 →", () => {
@@ -1709,7 +2037,7 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
         ),
         el("h3", "本处讨论"),
       );
-      if (!item.drafts.length)
+      if (!item.drafts.length && !item.messages.length)
         body.append(
           el("p", "尚未发送问题。这里将显示真实回答和追问历史。", "muted"),
         );
@@ -1719,6 +2047,42 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
         if (draft.quote)
           message.append(el("blockquote", draft.quote.quote, "doubt"));
         message.append(selectable(draft.text, draft.id, 0));
+        body.append(message);
+      }
+      for (const saved of item.messages) {
+        const message = el("article", "", "discussion-message");
+        message.dataset.messageId = saved.id;
+        const label =
+          saved.role === "user"
+            ? "我"
+            : `DeepSeek · ${saved.status === "pending" ? "正在回答" : saved.status === "interrupted" ? "已中断" : saved.status === "failed" ? "未完成" : "AI讲解"}`;
+        message.append(el("small", label));
+        if (saved.quote)
+          message.append(el("blockquote", saved.quote.quote, "doubt"));
+        message.append(selectable(saved.content, saved.id, 0));
+        if (
+          saved.role === "assistant" &&
+          ["failed", "interrupted"].includes(saved.status)
+        ) {
+          const at = item.messages.indexOf(saved),
+            previous = item.messages[at - 1];
+          if (previous?.role === "user")
+            message.append(
+              btn("继续这个问题", () => {
+                item.draft = previous.content;
+                selection = previous.quote;
+                draw();
+              }),
+            );
+        }
+        if (saved.usage)
+          message.append(
+            el(
+              "small",
+              `本次用量：输入${saved.usage.inputTokens} / 输出${saved.usage.outputTokens} tokens`,
+              "muted",
+            ),
+          );
         body.append(message);
       }
       const quoted = el(
@@ -1771,15 +2135,29 @@ function openDiscussion(answer: Answer, anchor: Anchor) {
           "primary",
         ),
       );
-      const send = btn("发送给DeepSeek", () => {});
-      send.disabled = true;
-      send.hidden = true;
-      send.title = "尚未接通API";
-      actions.append(send);
+      const sendButton = btn(
+        "预览并发送",
+        () => {
+          void prepareSend();
+        },
+        "primary",
+      );
+      sendButton.disabled = pending;
+      actions.append(sendButton);
+      if (pending) actions.append(btn("停止回答", () => controller?.abort()));
       body.append(actions);
     }
   }
-  dialog.addEventListener("close", () => render(), { once: true });
+  dialog.addEventListener(
+    "close",
+    () => {
+      open = false;
+      controller?.abort();
+      persist();
+      render();
+    },
+    { once: true },
+  );
   draw();
   showDialog(dialog);
   persist();
@@ -2118,6 +2496,16 @@ async function start() {
     hydrate(loaded);
     saves = makeSaves(loaded);
     lastSnapshot = JSON.stringify({ ...loaded, revision: 0, updatedAt: "" });
+    // 被系统关闭时尚在生成的回答保留原文，重开后不冒充完整回答。
+    for (const card of cards)
+      for (const round of [
+        ...card.history,
+        ...(card.round ? [card.round] : []),
+      ])
+        for (const answer of round.answers)
+          for (const discussion of Object.values(answer.discussions))
+            for (const message of discussion.messages)
+              if (message.status === "pending") message.status = "interrupted";
     saveStatus.textContent = "已读取本机记录";
     ready = true;
     render();

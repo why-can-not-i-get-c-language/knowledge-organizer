@@ -39,6 +39,12 @@ export interface SecretStore {
   hasDeepSeekKey(): Promise<boolean>;
   removeDeepSeekKey(): Promise<void>;
 }
+export interface DeepSeekSettings { configured: boolean; model: string; maxOutputTokens: number; }
+export interface DeepSeekConnection extends SecretStore {
+  settings(): Promise<DeepSeekSettings>;
+  configure(model: string, maxOutputTokens: number, key?: string): Promise<void>;
+  checkConnection(): Promise<void>;
+}
 /** 会话按作答/题目/标记隔离；save须在同一事务校验引用和expectedRevision。 */
 export interface ConversationRepository {
   createConversation(conversation: Conversation): Promise<void>;
@@ -60,7 +66,7 @@ export type AIEvent =
   | { type: 'text'; delta: string }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheHitTokens?: number }
   | { type: 'finished' };
-/** 此接口仅定义协议，尚无真实网络实现。取消/失败必须抛可识别错误，不发 finished。 */
+/** 取消/失败必须抛可识别错误，不发 finished。安装版网络由原生适配器执行。 */
 export interface AIProvider {
   stream(request: { model: string; context: QuestionContext; history: Pick<Message, 'role' | 'content'>[];
     question: string; maxOutputTokens: number }, signal: AbortSignal): AsyncIterable<AIEvent>;

@@ -51,6 +51,29 @@ const discussion = z
       )
       .max(1000),
     draft: z.string().max(20000),
+    messages: z
+      .array(
+        z
+          .object({
+            id,
+            role: z.enum(["user", "assistant"]),
+            content: z.string().max(200000),
+            status: z.enum(["pending", "complete", "interrupted", "failed"]),
+            model: z.string().min(1).max(100).optional(),
+            purpose: z.enum(["chat", "summary"]).optional(),
+            quote: quote.optional(),
+            usage: z
+              .object({
+                inputTokens: revision,
+                outputTokens: revision,
+                cacheHitTokens: revision.optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict(),
+      )
+      .max(1000),
   })
   .strict();
 const answer = z
@@ -97,9 +120,9 @@ export const markKey = (a: {
   start: number;
   end: number;
 }) => JSON.stringify([a.field, a.optionId ?? null, a.start, a.end]);
-export const workspaceSchema = z
+const currentWorkspaceSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     revision,
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
@@ -196,9 +219,38 @@ export const workspaceSchema = z
               !a.marks.some(
                 (m) => JSON.stringify(m) === JSON.stringify(d.anchor),
               ) ||
-              new Set(d.drafts.map((m) => m.id)).size !== d.drafts.length
+              new Set(d.drafts.map((m) => m.id)).size !== d.drafts.length ||
+              new Set(d.messages.map((m) => m.id)).size !== d.messages.length
             )
               fail("讨论与标记不对应");
+            for (const [at, message] of d.messages.entries()) {
+              if (
+                (message.role === "user" && message.status !== "complete") ||
+                (message.status === "complete" && !message.content.trim())
+              )
+                fail("会话消息状态无效");
+              const q = message.quote;
+              if (q) {
+                const source =
+                  d.messages.slice(0, at).find((m) => m.id === q.sourceId)
+                    ?.content ??
+                  d.drafts.find((m) => m.id === q.sourceId)?.text;
+                if (q.sourceId === d.id + ":summary") {
+                  if (
+                    !d.summary ||
+                    q.revision > d.summary.revision ||
+                    (q.revision === d.summary.revision &&
+                      d.summary.text.slice(q.start, q.end) !== q.quote)
+                  )
+                    fail("概括引用失配");
+                } else if (
+                  q.revision !== 0 ||
+                  !source ||
+                  source.slice(q.start, q.end) !== q.quote
+                )
+                  fail("消息引用失配");
+              }
+            }
           }
         }
       }
@@ -252,6 +304,41 @@ export const workspaceSchema = z
     if (Date.parse(w.updatedAt) < Date.parse(w.createdAt))
       fail("保存时间早于创建时间");
   });
+// v1只读复制后补充会话字段；未来版本不降级，不修改输入对象。
+export const workspaceSchema = z.preprocess((input) => {
+  if (
+    !input ||
+    typeof input !== "object" ||
+    (input as { schemaVersion?: unknown }).schemaVersion !== 1
+  )
+    return input;
+  const next = structuredClone(input) as Record<string, any>;
+  next.schemaVersion = 2;
+  if (!Array.isArray(next.cards)) return input;
+  for (const card of next.cards) {
+    if (!card || !Array.isArray(card.history)) return input;
+    for (const round of [
+      ...card.history,
+      ...(card.round ? [card.round] : []),
+    ]) {
+      if (!round || !Array.isArray(round.answers)) return input;
+      for (const answer of round.answers) {
+        if (
+          !answer ||
+          !answer.discussions ||
+          typeof answer.discussions !== "object" ||
+          Array.isArray(answer.discussions)
+        )
+          return input;
+        for (const discussion of Object.values(answer.discussions) as any[]) {
+          if (!discussion || typeof discussion !== "object") return input;
+          discussion.messages ??= [];
+        }
+      }
+    }
+  }
+  return next;
+}, currentWorkspaceSchema);
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type WorkspaceCard = Workspace["cards"][number];
 export type WorkspaceRound = NonNullable<WorkspaceCard["round"]>;
@@ -270,7 +357,7 @@ export function parseWorkspace(value: unknown): Workspace {
 }
 export function newWorkspace(now: string): Workspace {
   return parseWorkspace({
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 0,
     createdAt: now,
     updatedAt: now,
@@ -339,6 +426,7 @@ export function migrateLegacyWorkspace(backup: Backup, now: string): Workspace {
               summaryDraft: mark.note,
               drafts: [],
               draft: "",
+              messages: [],
             };
           return a;
         }),
@@ -393,6 +481,24 @@ export function validateWorkspaceUpdate(
         throw new AppError("VERSION_CONFLICT", "历史轮次不能被替换或删除");
       before.answers.forEach((a, i) => {
         const b = after.answers[i]!;
+        for (const [key, oldDiscussion] of Object.entries(a.discussions)) {
+          const updated = b.discussions[key];
+          for (const message of oldDiscussion.messages) {
+            const next = updated?.messages.find((m) => m.id === message.id);
+            if (
+              !next ||
+              (message.status !== "pending" &&
+                JSON.stringify(message) !== JSON.stringify(next)) ||
+              (message.status === "pending" &&
+                (next.role !== message.role ||
+                  !next.content.startsWith(message.content)))
+            )
+              throw new AppError(
+                "VERSION_CONFLICT",
+                "已有问答记录不能被旧保存覆盖",
+              );
+          }
+        }
         if (
           (a.locked &&
             (!b.locked ||

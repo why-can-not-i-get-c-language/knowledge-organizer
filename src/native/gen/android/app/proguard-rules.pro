@@ -21,3 +21,7 @@
 #-renamesourcefileattribute SourceFile
 -keep class app.knowledgeorganizer.learning.LibraryScanner { *; }
 -keep class app.knowledgeorganizer.learning.ScanFileArgs { *; }
+-keep class app.knowledgeorganizer.learning.DeepSeekPlugin { *; }
+-keep class app.knowledgeorganizer.learning.DeepSeekConfigArgs { *; }
+-keep class app.knowledgeorganizer.learning.DeepSeekStreamArgs { *; }
+-keep class app.knowledgeorganizer.learning.DeepSeekCancelArgs { *; }
